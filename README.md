@@ -1,3 +1,3 @@
 由ai构式的月经插件，蒽，或者说赛博排卵插件
 
-创建时文件夹名称为mofox_period_plugin
+创建时文件夹名称为mofox_period_plugin，然后把文件丢进去就行
