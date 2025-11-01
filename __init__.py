@@ -7,4 +7,5 @@ __plugin_meta__ = PluginMetadata(
     version="1.0.0",
     author="bingyv92",
     license="MIT",
+    repository_url="https://github.com/bingyv92/mofox_period_plugin",
 )
