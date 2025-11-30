@@ -6,9 +6,36 @@ from src.plugin_system import (
 )
 from src.plugin_system import BaseEventHandler, EventType
 from src.plugin_system.base.base_event import HandlerResult
+from src.plugin_system.apis import storage_api
 from src.common.logger import get_logger
 
 logger = get_logger("mofox_period_plugin")
+
+# 获取插件的本地存储实例
+plugin_storage = storage_api.get_local_storage("mofox_period_plugin")
+
+def get_last_period_date() -> str:
+    """获取上次月经开始日期，如果没有设置过则设为安装当天"""
+    last_period_date = plugin_storage.get("last_period_date", None)
+    if last_period_date is None:
+        # 首次使用，设置为今天
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        plugin_storage.set("last_period_date", today_str)
+        logger.info(f"首次安装，设置上次月经开始日期为: {today_str}")
+        return today_str
+    return last_period_date
+
+def set_last_period_date(date_str: str) -> bool:
+    """设置上次月经开始日期"""
+    try:
+        # 验证日期格式
+        datetime.strptime(date_str, "%Y-%m-%d")
+        plugin_storage.set("last_period_date", date_str)
+        logger.info(f"更新上次月经开始日期为: {date_str}")
+        return True
+    except ValueError:
+        logger.error(f"无效的日期格式: {date_str}")
+        return False
 
 class PeriodStateManager:
     """月经周期状态管理器"""
@@ -17,13 +44,16 @@ class PeriodStateManager:
         self.last_calculated_date = None
         self.current_state = None
         
-    def calculate_current_state(self, last_period_date: str, cycle_length: int) -> Dict[str, Any]:
+    def calculate_current_state(self, cycle_length: int) -> Dict[str, Any]:
         """计算当前周期状态"""
         today = datetime.now().date()
         
         # 如果已经计算过今天的状态，直接返回缓存
         if self.last_calculated_date == today and self.current_state:
             return self.current_state
+        
+        # 从存储中获取上次月经日期
+        last_period_date = get_last_period_date()
             
         try:
             last_date = datetime.strptime(last_period_date, "%Y-%m-%d").date()
@@ -133,15 +163,14 @@ class PeriodStatePrompt(BasePrompt):
         """生成周期状态提示词"""
         try:
             # 获取配置
-            last_period_date = self.get_config("cycle.last_period_date", "")
             cycle_length = self.get_config("cycle.cycle_length", 28)
             enabled = self.get_config("plugin.enabled", False)
             
-            if not enabled or not last_period_date:
+            if not enabled:
                 return ""
                 
             # 计算当前状态
-            state = self.state_manager.calculate_current_state(last_period_date, cycle_length)
+            state = self.state_manager.calculate_current_state(cycle_length)
             
             # 生成提示词
             prompt = self._generate_prompt(state)
@@ -212,7 +241,6 @@ class PeriodStatusCommand(BaseCommand):
         """执行状态查询"""
         try:
             # 获取配置
-            last_period_date = self.get_config("cycle.last_period_date", "")
             cycle_length = self.get_config("cycle.cycle_length", 28)
             enabled = self.get_config("plugin.enabled", False)
             
@@ -220,15 +248,14 @@ class PeriodStatusCommand(BaseCommand):
                 await self.send_text("❌ 月经周期插件未启用")
                 return True, "插件未启用", True
                 
-            if not last_period_date:
-                await self.send_text("❌ 请先配置上次月经开始日期")
-                return True, "未配置月经日期", True
-                
             # 计算当前状态
-            state = self.state_manager.calculate_current_state(last_period_date, cycle_length)
+            state = self.state_manager.calculate_current_state(cycle_length)
+            
+            # 获取并显示上次月经日期
+            last_period_date = get_last_period_date()
             
             # 生成状态报告
-            report = self._generate_status_report(state)
+            report = self._generate_status_report(state, last_period_date)
             await self.send_text(report)
             
             return True, "发送周期状态报告", True
@@ -238,7 +265,7 @@ class PeriodStatusCommand(BaseCommand):
             await self.send_text("❌ 查询状态失败，请检查配置")
             return False, f"查询失败: {e}", True
             
-    def _generate_status_report(self, state: Dict[str, Any]) -> str:
+    def _generate_status_report(self, state: Dict[str, Any], last_period_date: str) -> str:
         """生成状态报告"""
         stage_emoji = {
             "menstrual": "🩸",
@@ -254,6 +281,7 @@ class PeriodStatusCommand(BaseCommand):
 ━━━━━━━━━━━━━━━━━━
 📅 当前阶段: {state['stage_name_cn']}
 🔢 周期第 {state['current_day']} 天 / {state['cycle_length']} 天
+📆 上次月经日期: {last_period_date}
 
 💊 生理影响: {state['physical_impact']}/1.0
 💭 心理影响: {state['psychological_impact']}/1.0
@@ -262,9 +290,42 @@ class PeriodStatusCommand(BaseCommand):
 {state['description']}
 ━━━━━━━━━━━━━━━━━━
 💡 提示: 这些状态会影响我的回复风格和行为表现
+💡 可使用 /set_period YYYY-MM-DD 修改上次月经日期
         """.strip()
         
         return report
+
+class SetPeriodCommand(BaseCommand):
+    """设置上次月经开始日期命令"""
+    
+    command_name = "set_period"
+    command_description = "设置上次月经开始日期"
+    command_pattern = r"^/(set_period|设置月经日期)\s+(\d{4}-\d{2}-\d{2})$"
+    chat_type_allow = ChatType.PRIVATE  # 只在私聊中使用
+    
+    async def execute(self) -> Tuple[bool, str, bool]:
+        """执行设置月经日期"""
+        try:
+            # 从匹配中获取日期
+            import re
+            match = re.match(self.command_pattern, self.message_text)
+            if not match:
+                await self.send_text("❌ 格式错误，请使用: /set_period YYYY-MM-DD")
+                return True, "格式错误", True
+                
+            date_str = match.group(2)
+            
+            if set_last_period_date(date_str):
+                await self.send_text(f"✅ 上次月经开始日期已更新为: {date_str}")
+                return True, f"设置月经日期: {date_str}", True
+            else:
+                await self.send_text("❌ 日期格式无效，请使用 YYYY-MM-DD 格式")
+                return True, "日期格式无效", True
+                
+        except Exception as e:
+            logger.error(f"设置月经日期失败: {e}")
+            await self.send_text("❌ 设置失败，请检查输入")
+            return False, f"设置失败: {e}", True
 
 class PeriodStateUpdateHandler(BaseEventHandler):
     """周期状态更新处理器"""
@@ -277,14 +338,12 @@ class PeriodStateUpdateHandler(BaseEventHandler):
         """初始化状态管理器"""
         try:
             # 在启动时预计算一次状态，确保提示词正确生成
-            last_period_date = self.get_config("cycle.last_period_date", "")
-            cycle_length = self.get_config("cycle.cycle_length", 28)
             enabled = self.get_config("plugin.enabled", False)
             
-            if enabled and last_period_date:
-                logger.info("月经周期状态管理器初始化完成")
-            elif enabled:
-                logger.warning("月经周期插件已启用但未配置月经开始日期")
+            if enabled:
+                # 获取或初始化上次月经日期
+                last_period_date = get_last_period_date()
+                logger.info(f"月经周期状态管理器初始化完成，上次月经日期: {last_period_date}")
                 
         except Exception as e:
             logger.error(f"周期状态管理器初始化失败: {e}")
@@ -316,12 +375,6 @@ class MofoxPeriodPlugin(BasePlugin):
             )
         },
         "cycle": {
-            "last_period_date": ConfigField(
-                type=str,
-                default="",
-                description="上次月经开始日期 (格式: YYYY-MM-DD)",
-                example="2024-01-01"
-            ),
             "cycle_length": ConfigField(
                 type=int,
                 default=28,
@@ -392,5 +445,6 @@ class MofoxPeriodPlugin(BasePlugin):
         if self.get_config("plugin.enabled", False):
             components.append((PeriodStatePrompt.get_prompt_info(), PeriodStatePrompt))
             components.append((PeriodStatusCommand.get_command_info(), PeriodStatusCommand))
+            components.append((SetPeriodCommand.get_command_info(), SetPeriodCommand))
             
         return components
