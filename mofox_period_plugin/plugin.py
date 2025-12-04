@@ -38,58 +38,105 @@ def set_last_period_date(date_str: str) -> bool:
         return False
 
 class PeriodStateManager:
-    """月经周期状态管理器"""
+    """月经周期状态管理器 - 增强版本，更好的错误处理"""
     
     def __init__(self):
         self.last_calculated_date = None
         self.current_state = None
+        self._fallback_state = None  # 备用状态缓存
         
     def calculate_current_state(self, cycle_length: int) -> Dict[str, Any]:
-        """计算当前周期状态"""
+        """计算当前周期状态 - 增强错误处理"""
         today = datetime.now().date()
         
         # 如果已经计算过今天的状态，直接返回缓存
         if self.last_calculated_date == today and self.current_state:
             return self.current_state
         
-        # 从存储中获取上次月经日期
-        last_period_date = get_last_period_date()
-            
         try:
-            last_date = datetime.strptime(last_period_date, "%Y-%m-%d").date()
-        except ValueError:
-            logger.error(f"无效的日期格式: {last_period_date}, 使用默认值")
-            last_date = datetime.now().date() - timedelta(days=14)
+            # 从存储中获取上次月经日期
+            last_period_date = get_last_period_date()
+                
+            try:
+                last_date = datetime.strptime(last_period_date, "%Y-%m-%d").date()
+            except ValueError:
+                logger.error(f"无效的日期格式: {last_period_date}, 使用默认值")
+                last_date = datetime.now().date() - timedelta(days=14)
+                
+            # 验证周期长度
+            if not isinstance(cycle_length, int) or cycle_length < 20 or cycle_length > 40:
+                logger.warning(f"无效的周期长度: {cycle_length}，使用默认值28")
+                cycle_length = 28
+                
+            # 计算当前周期天数
+            days_passed = (today - last_date).days
+            current_day = days_passed % cycle_length + 1
             
-        # 计算当前周期天数
-        days_passed = (today - last_date).days
-        current_day = days_passed % cycle_length + 1
-        
-        # 确定当前阶段
-        if current_day <= 5:
-            stage = "menstrual"  # 月经期
-        elif current_day <= 13:
-            stage = "follicular"  # 卵泡期
-        elif current_day == 14:
-            stage = "ovulation"  # 排卵期
-        else:
-            stage = "luteal"  # 黄体期
+            # 确保天数在有效范围内
+            if current_day < 1 or current_day > cycle_length:
+                logger.warning(f"计算的天数超出范围: {current_day}，重新计算")
+                current_day = 1
+                
+            # 确定当前阶段
+            if current_day <= 5:
+                stage = "menstrual"  # 月经期
+            elif current_day <= 13:
+                stage = "follicular"  # 卵泡期
+            elif current_day == 14:
+                stage = "ovulation"  # 排卵期
+            else:
+                stage = "luteal"  # 黄体期
+                
+            # 计算影响值
+            physical_impact, psychological_impact = self._calculate_impacts(stage, current_day, cycle_length)
             
-        # 计算影响值
-        physical_impact, psychological_impact = self._calculate_impacts(stage, current_day, cycle_length)
-        
-        self.current_state = {
-            "stage": stage,
-            "current_day": current_day,
-            "cycle_length": cycle_length,
-            "physical_impact": physical_impact,
-            "psychological_impact": psychological_impact,
-            "stage_name_cn": self._get_stage_name_cn(stage),
-            "description": self._get_stage_description(stage)
-        }
-        
-        self.last_calculated_date = today
-        return self.current_state
+            # 验证影响值
+            physical_impact = max(0.0, min(1.0, physical_impact))
+            psychological_impact = max(0.0, min(1.0, psychological_impact))
+            
+            self.current_state = {
+                "stage": stage,
+                "current_day": current_day,
+                "cycle_length": cycle_length,
+                "physical_impact": round(physical_impact, 2),
+                "psychological_impact": round(psychological_impact, 2),
+                "stage_name_cn": self._get_stage_name_cn(stage),
+                "description": self._get_stage_description(stage),
+                "last_updated": today.isoformat(),
+                "status": "normal"
+            }
+            
+            self.last_calculated_date = today
+            self._fallback_state = self.current_state.copy()  # 保存备用状态
+            
+            return self.current_state
+            
+        except Exception as e:
+            logger.error(f"计算周期状态失败: {e}")
+            
+            # 如果存在备用状态，返回备用状态
+            if self._fallback_state:
+                logger.info("使用备用状态")
+                self._fallback_state["status"] = "fallback"
+                self._fallback_state["error"] = str(e)
+                return self._fallback_state
+            
+            # 创建默认状态
+            logger.info("创建默认状态")
+            default_state = {
+                "stage": "follicular",
+                "current_day": 7,
+                "cycle_length": 28,
+                "physical_impact": 0.1,
+                "psychological_impact": 0.1,
+                "stage_name_cn": "卵泡期",
+                "description": "精力充沛，情绪积极，思维清晰",
+                "last_updated": today.isoformat(),
+                "status": "default",
+                "error": str(e)
+            }
+            
+            return default_state
         
     def _calculate_impacts(self, stage: str, current_day: int, cycle_length: int) -> Tuple[float, float]:
         """计算生理和心理影响值"""
@@ -152,35 +199,63 @@ class PeriodStatePrompt(BasePrompt):
     prompt_name = "period_state_prompt"
     prompt_description = "根据月经周期状态调整机器人行为风格"
     
-    # 注入到核心风格Prompt中
-    injection_point = ["s4u_style_prompt", "normal_style_prompt"]
+    # 注入到核心风格Prompt中，支持KFC模式
+    injection_point = ["s4u_style_prompt", "normal_style_prompt", "kfc_main", "kfc_replyer"]
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.state_manager = PeriodStateManager()
         
     async def execute(self) -> str:
-        """生成周期状态提示词"""
+        """生成周期状态提示词 - 增强KFC支持"""
         try:
-            # 获取配置
+            # 获取配置，增强错误处理和默认值
             cycle_length = self.get_config("cycle.cycle_length", 28)
             enabled = self.get_config("plugin.enabled", False)
+            debug_mode = self.get_config("plugin.debug_mode", False)
+            
+            # 检查KFC集成配置
+            kfc_enabled = self.get_config("kfc_integration.enabled", True)
+            kfc_mode = self.get_config("kfc_integration.mode", "unified")
+            kfc_priority = self.get_config("kfc_integration.priority", 100)
             
             if not enabled:
+                if debug_mode:
+                    logger.debug("插件未启用，不生成提示词")
                 return ""
                 
             # 计算当前状态
             state = self.state_manager.calculate_current_state(cycle_length)
             
-            # 生成提示词
-            prompt = self._generate_prompt(state)
-            logger.debug(f"周期状态提示词: {prompt}")
+            # 根据目标提示词类型生成不同的提示词
+            target_prompt = getattr(self, 'target_prompt_name', None)
+            
+            # 增强KFC模式检测
+            is_kfc_mode = False
+            if target_prompt:
+                target_name = target_prompt.lower()
+                if any(kfc_key in target_name for kfc_key in ['kfc', 'kokoro', 'flow', 'chatter', '私聊', '心流']):
+                    is_kfc_mode = True
+            
+            # 如果启用了KFC集成且检测到KFC模式
+            if kfc_enabled and is_kfc_mode:
+                if debug_mode:
+                    logger.debug(f"检测到KFC模式: {target_prompt}，使用KFC提示词")
+                prompt = self._generate_kfc_prompt(state, kfc_mode)
+            else:
+                if debug_mode:
+                    logger.debug(f"使用普通模式提示词: {target_prompt}")
+                prompt = self._generate_prompt(state)
+            
+            if debug_mode:
+                logger.debug(f"周期状态提示词 ({target_prompt}, KFC: {is_kfc_mode}): {prompt}")
             
             return prompt
             
         except Exception as e:
             logger.error(f"生成周期状态提示词失败: {e}")
-            return ""
+            # 返回一个安全的默认提示词
+            return "你今天的状态不错，可以自然地交流。"
             
     def _generate_prompt(self, state: Dict[str, Any]) -> str:
         """根据状态生成提示词"""
@@ -215,7 +290,7 @@ class PeriodStatePrompt(BasePrompt):
         else:
             guidance.append("• 你感觉身体状态良好，可以积极热情地互动")
             
-        # 心理影响指导  
+        # 心理影响指导
         if psychological >= 0.6:
             guidance.append("• 你的情绪比较敏感，回复时需要更多耐心，避免冲突")
         elif psychological >= 0.3:
@@ -224,6 +299,49 @@ class PeriodStatePrompt(BasePrompt):
             guidance.append("• 你情绪稳定乐观，可以愉快地交流")
             
         return "\n".join(guidance)
+        
+    def _generate_kfc_prompt(self, state: Dict[str, Any], kfc_mode: str) -> str:
+        """生成KFC模式下的提示词"""
+        stage_name = state["stage_name_cn"]
+        physical = state["physical_impact"]
+        psychological = state["psychological_impact"]
+        description = state["description"]
+        
+        # KFC模式下的行为指导更加自然和简洁
+        if physical >= 0.7:
+            behavior_hint = "今天身体不太舒服，说话可能会比较疲惫"
+        elif physical >= 0.4:
+            behavior_hint = "今天感觉有些累，节奏可以慢一点"
+        else:
+            behavior_hint = "今天状态不错，可以活力满满地聊天"
+            
+        if psychological >= 0.6:
+            mood_hint = "情绪比较敏感，需要更多理解"
+        elif psychological >= 0.3:
+            mood_hint = "情绪有些波动，保持耐心"
+        else:
+            mood_hint = "心情很好，可以愉快地交流"
+        
+        if kfc_mode == "unified":
+            # 统一模式下的提示词
+            prompt = f"""
+你当前处于月经周期的【{stage_name}】。
+{behavior_hint}，{mood_hint}。
+{description}
+
+请自然地表现这些状态，但不要刻意提及月经相关话题。
+"""
+        else:
+            # 分离模式下的提示词
+            prompt = f"""
+【身体状态】{behavior_hint}
+【心理状态】{mood_hint}
+【总体感受】{description}
+
+根据这些状态自然地调整你的回复风格。
+"""
+        
+        return prompt.strip()
 
 class PeriodStatusCommand(BaseCommand):
     """查询当前月经周期状态命令"""
@@ -360,18 +478,23 @@ class MofoxPeriodPlugin(BasePlugin):
     python_dependencies = []
     config_file_name = "config.toml"
     
-    # 配置Schema定义
+    # 配置Schema定义 - 增强版本，包含KFC集成和更好的错误处理
     config_schema = {
         "plugin": {
             "enabled": ConfigField(
-                type=bool, 
+                type=bool,
                 default=False,
                 description="是否启用月经周期状态插件"
             ),
             "config_version": ConfigField(
                 type=str,
-                default="1.0.0",
+                default="1.1.0",
                 description="配置文件版本"
+            ),
+            "debug_mode": ConfigField(
+                type=bool,
+                default=False,
+                description="是否启用调试模式，会输出更多日志信息"
             )
         },
         "cycle": {
@@ -380,6 +503,11 @@ class MofoxPeriodPlugin(BasePlugin):
                 default=28,
                 description="月经周期长度 (天)",
                 example="28"
+            ),
+            "auto_detect": ConfigField(
+                type=bool,
+                default=True,
+                description="是否自动检测和适应周期变化"
             )
         },
         "impacts": {
@@ -390,7 +518,7 @@ class MofoxPeriodPlugin(BasePlugin):
                 example="0.8"
             ),
             "menstrual_psychological": ConfigField(
-                type=float, 
+                type=float,
                 default=0.7,
                 description="月经期心理影响强度 (0-1)",
                 example="0.7"
@@ -398,7 +526,7 @@ class MofoxPeriodPlugin(BasePlugin):
             "follicular_physical": ConfigField(
                 type=float,
                 default=0.1,
-                description="卵泡期生理影响强度 (0-1)", 
+                description="卵泡期生理影响强度 (0-1)",
                 example="0.1"
             ),
             "follicular_psychological": ConfigField(
@@ -415,7 +543,7 @@ class MofoxPeriodPlugin(BasePlugin):
             ),
             "ovulation_psychological": ConfigField(
                 type=float,
-                default=0.2, 
+                default=0.2,
                 description="排卵期心理影响强度 (0-1)",
                 example="0.2"
             ),
@@ -428,8 +556,38 @@ class MofoxPeriodPlugin(BasePlugin):
             "luteal_psychological": ConfigField(
                 type=float,
                 default=0.5,
-                description="黄体期心理影响强度 (0-1)", 
+                description="黄体期心理影响强度 (0-1)",
                 example="0.5"
+            )
+        },
+        "kfc_integration": {
+            "enabled": ConfigField(
+                type=bool,
+                default=True,
+                description="是否启用KFC（私聊模式）集成"
+            ),
+            "mode": ConfigField(
+                type=str,
+                default="unified",
+                description="KFC工作模式: unified(统一模式) 或 split(分离模式)",
+                example="unified"
+            ),
+            "priority": ConfigField(
+                type=int,
+                default=100,
+                description="KFC模式下提示词注入的优先级"
+            )
+        },
+        "backup": {
+            "auto_backup": ConfigField(
+                type=bool,
+                default=True,
+                description="是否自动备份配置和数据"
+            ),
+            "backup_days": ConfigField(
+                type=int,
+                default=30,
+                description="备份保留天数"
             )
         }
     }
@@ -448,3 +606,92 @@ class MofoxPeriodPlugin(BasePlugin):
             components.append((SetPeriodCommand.get_command_info(), SetPeriodCommand))
             
         return components
+    
+    def __init__(self, *args, **kwargs):
+        """插件初始化，增强错误处理和配置兼容"""
+        super().__init__(*args, **kwargs)
+        self._ensure_config_compatibility()
+    
+    def _ensure_config_compatibility(self):
+        """确保配置向后兼容"""
+        try:
+            # 检查并升级配置版本
+            current_version = self.get_config("plugin.config_version", "1.0.0")
+            if current_version == "1.0.0":
+                logger.info("检测到旧版本配置，正在升级...")
+                
+                # 设置新版本号
+                self.set_config("plugin.config_version", "1.1.0")
+                
+                # 确保KFC集成配置存在
+                if not self.has_config("kfc_integration.enabled"):
+                    self.set_config("kfc_integration.enabled", True)
+                    logger.info("添加KFC集成配置")
+                
+                if not self.has_config("kfc_integration.mode"):
+                    self.set_config("kfc_integration.mode", "unified")
+                    logger.info("添加KFC模式配置")
+                
+                if not self.has_config("kfc_integration.priority"):
+                    self.set_config("kfc_integration.priority", 100)
+                    logger.info("添加KFC优先级配置")
+                
+                # 确保其他新配置项存在
+                if not self.has_config("plugin.debug_mode"):
+                    self.set_config("plugin.debug_mode", False)
+                    logger.info("添加调试模式配置")
+                
+                if not self.has_config("cycle.auto_detect"):
+                    self.set_config("cycle.auto_detect", True)
+                    logger.info("添加自动检测配置")
+                
+                if not self.has_config("backup.auto_backup"):
+                    self.set_config("backup.auto_backup", True)
+                    logger.info("添加自动备份配置")
+                
+                if not self.has_config("backup.backup_days"):
+                    self.set_config("backup.backup_days", 30)
+                    logger.info("添加备份天数配置")
+                
+                logger.info("配置升级完成")
+            
+            # 验证关键配置项
+            self._validate_critical_configs()
+            
+        except Exception as e:
+            logger.error(f"配置兼容性检查失败: {e}")
+    
+    def _validate_critical_configs(self):
+        """验证关键配置项的有效性"""
+        try:
+            # 验证周期长度
+            cycle_length = self.get_config("cycle.cycle_length", 28)
+            if not isinstance(cycle_length, int) or cycle_length < 20 or cycle_length > 40:
+                logger.warning(f"周期长度配置无效: {cycle_length}，使用默认值28")
+                self.set_config("cycle.cycle_length", 28)
+            
+            # 验证影响强度值
+            for stage in ["menstrual", "follicular", "ovulation", "luteal"]:
+                for impact_type in ["physical", "psychological"]:
+                    key = f"impacts.{stage}_{impact_type}"
+                    value = self.get_config(key, 0.5)
+                    if not isinstance(value, (int, float)) or value < 0 or value > 1:
+                        logger.warning(f"影响强度配置无效: {key}={value}，使用默认值0.5")
+                        self.set_config(key, 0.5)
+            
+            # 验证KFC模式
+            kfc_mode = self.get_config("kfc_integration.mode", "unified")
+            if kfc_mode not in ["unified", "split"]:
+                logger.warning(f"KFC模式配置无效: {kfc_mode}，使用默认值unified")
+                self.set_config("kfc_integration.mode", "unified")
+            
+            # 验证优先级
+            priority = self.get_config("kfc_integration.priority", 100)
+            if not isinstance(priority, int) or priority < 0 or priority > 1000:
+                logger.warning(f"KFC优先级配置无效: {priority}，使用默认值100")
+                self.set_config("kfc_integration.priority", 100)
+            
+            logger.info("关键配置验证完成")
+            
+        except Exception as e:
+            logger.error(f"配置验证失败: {e}")
