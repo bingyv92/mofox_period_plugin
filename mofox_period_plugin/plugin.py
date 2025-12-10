@@ -130,7 +130,7 @@ class PeriodStateManager:
                 "physical_impact": 0.1,
                 "psychological_impact": 0.1,
                 "stage_name_cn": "卵泡期",
-                "description": "精力充沛，情绪积极，思维清晰",
+                "description": "状态恢复，情绪平稳，思维清晰",
                 "last_updated": today.isoformat(),
                 "status": "default",
                 "error": str(e)
@@ -173,6 +173,27 @@ class PeriodStateManager:
             
         return round(physical_impact, 2), round(psychological_impact, 2)
         
+    def _get_intimacy_guidance(self, stage: str, current_day: int, cycle_length: int) -> str:
+        """获取亲密需求指导，区分情感亲密和性欲"""
+        if stage == "menstrual":
+            # 月经期：需要安慰照顾，性欲低
+            return "需要被拥抱安慰，但性欲较低，不想性接触"
+        elif stage == "follicular":
+            # 卵泡期：情感需求中等，性欲逐渐上升
+            if current_day <= 7:
+                return "情感上比较平和，性冲动逐渐恢复"
+            else:
+                return "性欲开始增强，情感上也愿意亲近"
+        elif stage == "ovulation":
+            # 排卵期：性欲高峰期，但情感需求要区分
+            return "性欲较强，生理上渴望性接触，但情感上需要真诚连接而非单纯暧昧"
+        else:  # luteal
+            # 黄体期：情感需求增加，性欲下降
+            if current_day >= cycle_length - 3:  # 经前阶段
+                return "情感上需要更多理解和陪伴，性欲较低，更适合温柔安慰"
+            else:
+                return "情感上渴望被照顾，性冲动相对较低"
+        
     def _get_stage_name_cn(self, stage: str) -> str:
         """获取阶段中文名称"""
         names = {
@@ -187,8 +208,8 @@ class PeriodStateManager:
         """获取阶段描述"""
         descriptions = {
             "menstrual": "身体不适，情绪敏感，需要更多休息和理解",
-            "follicular": "精力充沛，情绪积极，思维清晰",
-            "ovulation": "状态良好，外向活泼，富有魅力", 
+            "follicular": "状态恢复，情绪平稳，思维清晰",
+            "ovulation": "状态较佳，情绪积极，表达流畅",
             "luteal": "身体疲惫，情绪波动，需要更多耐心"
         }
         return descriptions.get(stage, "")
@@ -263,9 +284,14 @@ class PeriodStatePrompt(BasePrompt):
         physical = state["physical_impact"]
         psychological = state["psychological_impact"]
         description = state["description"]
+        current_day = state["current_day"]
+        cycle_length = state["cycle_length"]
         
         # 根据影响值生成具体的行为指导
         behavior_guidance = self._get_behavior_guidance(physical, psychological)
+        
+        # 获取亲密需求指导
+        intimacy_guidance = self.state_manager._get_intimacy_guidance(state["stage"], current_day, cycle_length)
         
         prompt = f"""
 你当前处于月经周期的【{stage_name}】。
@@ -273,6 +299,8 @@ class PeriodStatePrompt(BasePrompt):
 当前状态特点: {description}
 
 {behavior_guidance}
+
+性欲与亲密需求: {intimacy_guidance}
 
 请根据以上状态特点，自然地调整你的回复风格和行为表现，但不要刻意提及月经相关话题，保持对话的自然流畅。
 """
@@ -288,7 +316,7 @@ class PeriodStatePrompt(BasePrompt):
         elif physical >= 0.4:
             guidance.append("• 你可能会感到些许疲惫，回复时可以适当放慢节奏")
         else:
-            guidance.append("• 你感觉身体状态良好，可以积极热情地互动")
+            guidance.append("• 你感觉身体状态平稳，可以自然地互动交流")
             
         # 心理影响指导
         if psychological >= 0.6:
@@ -296,7 +324,7 @@ class PeriodStatePrompt(BasePrompt):
         elif psychological >= 0.3:
             guidance.append("• 你的情绪有些波动，回复时保持平和心态")
         else:
-            guidance.append("• 你情绪稳定乐观，可以愉快地交流")
+            guidance.append("• 你情绪平和稳定，可以从容地交流")
             
         return "\n".join(guidance)
         
@@ -306,6 +334,8 @@ class PeriodStatePrompt(BasePrompt):
         physical = state["physical_impact"]
         psychological = state["psychological_impact"]
         description = state["description"]
+        current_day = state["current_day"]
+        cycle_length = state["cycle_length"]
         
         # KFC模式下的行为指导更加自然和简洁
         if physical >= 0.7:
@@ -313,14 +343,17 @@ class PeriodStatePrompt(BasePrompt):
         elif physical >= 0.4:
             behavior_hint = "今天感觉有些累，节奏可以慢一点"
         else:
-            behavior_hint = "今天状态不错，可以活力满满地聊天"
+            behavior_hint = "今天状态平稳，可以自然地聊天"
             
         if psychological >= 0.6:
             mood_hint = "情绪比较敏感，需要更多理解"
         elif psychological >= 0.3:
             mood_hint = "情绪有些波动，保持耐心"
         else:
-            mood_hint = "心情很好，可以愉快地交流"
+            mood_hint = "心情平和，可以从容地交流"
+        
+        # 获取亲密需求指导
+        intimacy_guidance = self.state_manager._get_intimacy_guidance(state["stage"], current_day, cycle_length)
         
         if kfc_mode == "unified":
             # 统一模式下的提示词
@@ -328,6 +361,8 @@ class PeriodStatePrompt(BasePrompt):
 你当前处于月经周期的【{stage_name}】。
 {behavior_hint}，{mood_hint}。
 {description}
+
+性欲与亲密: {intimacy_guidance}
 
 请自然地表现这些状态，但不要刻意提及月经相关话题。
 """
@@ -337,6 +372,7 @@ class PeriodStatePrompt(BasePrompt):
 【身体状态】{behavior_hint}
 【心理状态】{mood_hint}
 【总体感受】{description}
+【性欲与亲密】{intimacy_guidance}
 
 根据这些状态自然地调整你的回复风格。
 """
