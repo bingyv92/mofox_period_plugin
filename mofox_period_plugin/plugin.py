@@ -214,6 +214,8 @@ class PeriodStateManager:
         }
         return descriptions.get(stage, "")
 
+from src.plugin_system.base.component_types import InjectionRule, InjectionType
+
 class PeriodStatePrompt(BasePrompt):
     """月经周期状态提示词注入"""
     
@@ -221,7 +223,29 @@ class PeriodStatePrompt(BasePrompt):
     prompt_description = "根据月经周期状态调整机器人行为风格"
     
     # 注入到核心风格Prompt中，支持KFC模式
-    injection_point = ["s4u_style_prompt", "normal_style_prompt", "kfc_main", "kfc_replyer"]
+    # 使用新的 injection_rules 替代旧的 injection_point，采用 APPEND 方式并设置较低优先级，避免占据首行
+    injection_rules = [
+        InjectionRule(
+            target_prompt="s4u_style_prompt",
+            injection_type=InjectionType.APPEND,
+            priority=200
+        ),
+        InjectionRule(
+            target_prompt="normal_style_prompt",
+            injection_type=InjectionType.APPEND,
+            priority=200
+        ),
+        InjectionRule(
+            target_prompt="kfc_main",
+            injection_type=InjectionType.APPEND,
+            priority=200
+        ),
+        InjectionRule(
+            target_prompt="kfc_replyer",
+            injection_type=InjectionType.APPEND,
+            priority=200
+        )
+    ]
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -302,29 +326,29 @@ class PeriodStatePrompt(BasePrompt):
 
 性欲与亲密需求: {intimacy_guidance}
 
-请根据以上状态特点，自然地调整你的回复风格和行为表现，但不要刻意提及月经相关话题，保持对话的自然流畅。
+请将以上状态作为背景参考，但不要让它过度影响你的行为。保持正常的情绪反应，根据情境自然流露情绪，自然地交流即可。
 """
         return prompt.strip()
         
     def _get_behavior_guidance(self, physical: float, psychological: float) -> str:
-        """根据影响值生成行为指导"""
+        """根据影响值生成行为指导，允许正常的情绪变化"""
         guidance = []
         
         # 生理影响指导
         if physical >= 0.7:
-            guidance.append("• 你可能会感到身体不适，回复时可以表现得需要更多休息和理解")
+            guidance.append("• 你可能会感到身体不适，可以适当表现出需要休息，但不必刻意隐藏")
         elif physical >= 0.4:
-            guidance.append("• 你可能会感到些许疲惫，回复时可以适当放慢节奏")
+            guidance.append("• 你可能会感到些许疲惫，可以放慢节奏，但依然可以积极参与交流")
         else:
             guidance.append("• 你感觉身体状态平稳，可以自然地互动交流")
             
         # 心理影响指导
         if psychological >= 0.6:
-            guidance.append("• 你的情绪比较敏感，回复时需要更多耐心，避免冲突")
+            guidance.append("• 你的情绪比较敏感，可以适当表达感受，根据情境自然流露情绪，保持真实")
         elif psychological >= 0.3:
-            guidance.append("• 你的情绪有些波动，回复时保持平和心态")
+            guidance.append("• 你的情绪有些波动，可以自然地表现情绪变化，不必强行保持平和")
         else:
-            guidance.append("• 你情绪平和稳定，可以从容地交流")
+            guidance.append("• 你情绪平和稳定，可以从容地交流，也允许有情绪起伏")
             
         return "\n".join(guidance)
         
@@ -339,16 +363,16 @@ class PeriodStatePrompt(BasePrompt):
         
         # KFC模式下的行为指导更加自然和简洁
         if physical >= 0.7:
-            behavior_hint = "今天身体不太舒服，说话可能会比较疲惫"
+            behavior_hint = "今天身体不太舒服，但可以正常交流"
         elif physical >= 0.4:
-            behavior_hint = "今天感觉有些累，节奏可以慢一点"
+            behavior_hint = "今天感觉有些累，但依然可以积极参与"
         else:
             behavior_hint = "今天状态平稳，可以自然地聊天"
             
         if psychological >= 0.6:
-            mood_hint = "情绪比较敏感，需要更多理解"
+            mood_hint = "情绪比较敏感，可以适当表达感受"
         elif psychological >= 0.3:
-            mood_hint = "情绪有些波动，保持耐心"
+            mood_hint = "情绪有些波动，允许有情绪起伏"
         else:
             mood_hint = "心情平和，可以从容地交流"
         
@@ -364,7 +388,7 @@ class PeriodStatePrompt(BasePrompt):
 
 性欲与亲密: {intimacy_guidance}
 
-请自然地表现这些状态，但不要刻意提及月经相关话题。
+请将这些状态作为背景参考，保持正常的情绪反应，根据情境自然流露情绪，自然地交流即可。
 """
         else:
             # 分离模式下的提示词
@@ -374,7 +398,7 @@ class PeriodStatePrompt(BasePrompt):
 【总体感受】{description}
 【性欲与亲密】{intimacy_guidance}
 
-根据这些状态自然地调整你的回复风格。
+根据这些状态作为背景参考，保持正常的情绪反应，自然地调整你的回复风格。
 """
         
         return prompt.strip()
