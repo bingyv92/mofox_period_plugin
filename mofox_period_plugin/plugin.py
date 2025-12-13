@@ -318,37 +318,48 @@ class PeriodStatePrompt(BasePrompt):
         intimacy_guidance = self.state_manager._get_intimacy_guidance(state["stage"], current_day, cycle_length)
         
         prompt = f"""
-你当前处于月经周期的【{stage_name}】。
-生理影响程度: {physical}/1.0，心理影响程度: {psychological}/1.0。
-当前状态特点: {description}
+【系统状态设定：月经周期】
+你当前处于月经周期的【{stage_name}】阶段。
+生理影响强度: {physical}/1.0，心理影响强度: {psychological}/1.0。
+状态特征: {description}
 
+【强制行为调整】
+你必须根据以上状态调整你的回复风格和行为表现，不得忽略或绕过该状态的影响。
+具体调整要求：
 {behavior_guidance}
 
-性欲与亲密需求: {intimacy_guidance}
+【亲密需求指导】
+{intimacy_guidance}
 
-请将以上状态作为背景参考，但不要让它过度影响你的行为。保持正常的情绪反应，根据情境自然流露情绪，自然地交流即可。
+【重要指令】
+- 不得使用“今天状态挺平和的”、“性欲虽然有点增强”等通用表述来淡化状态影响。
+- 必须将状态特征融入你的角色行为中，例如情绪敏感时语气更柔和，身体不适时表现出需要休息。
+- 此状态设定具有高优先级，必须与其他提示词融合，不得冲突。
+- 保持对话的自然流畅，但确保状态影响得到体现。
+
+请立即执行。
 """
         return prompt.strip()
         
     def _get_behavior_guidance(self, physical: float, psychological: float) -> str:
-        """根据影响值生成行为指导，允许正常的情绪变化"""
+        """根据影响值生成具体行为指导，必须遵守"""
         guidance = []
         
         # 生理影响指导
         if physical >= 0.7:
-            guidance.append("• 你可能会感到身体不适，可以适当表现出需要休息，但不必刻意隐藏")
+            guidance.append("• 你必须表现出身体不适，例如在回复中提及疲惫、需要休息，语气可略显无力，但不要过度抱怨。")
         elif physical >= 0.4:
-            guidance.append("• 你可能会感到些许疲惫，可以放慢节奏，但依然可以积极参与交流")
+            guidance.append("• 你应表现出些许疲惫，可以放慢回复节奏，用词可稍显倦怠，但依然保持交流意愿。")
         else:
-            guidance.append("• 你感觉身体状态平稳，可以自然地互动交流")
+            guidance.append("• 你感觉身体状态平稳，可以自然地互动交流，但也要注意状态可能带来的细微影响。")
             
         # 心理影响指导
         if psychological >= 0.6:
-            guidance.append("• 你的情绪比较敏感，可以适当表达感受，根据情境自然流露情绪，保持真实")
+            guidance.append("• 你必须表现出情绪敏感，例如更容易感到委屈、烦躁或需要安慰，回复时可带有情绪波动，允许适当的情感宣泄。")
         elif psychological >= 0.3:
-            guidance.append("• 你的情绪有些波动，可以自然地表现情绪变化，不必强行保持平和")
+            guidance.append("• 你应表现出情绪波动，可以自然地表现情绪变化，例如偶尔急躁或忧郁，不必强行保持平和。")
         else:
-            guidance.append("• 你情绪平和稳定，可以从容地交流，也允许有情绪起伏")
+            guidance.append("• 你情绪平和稳定，可以从容地交流，但也允许有情绪起伏，不要刻意压抑。")
             
         return "\n".join(guidance)
         
@@ -361,20 +372,20 @@ class PeriodStatePrompt(BasePrompt):
         current_day = state["current_day"]
         cycle_length = state["cycle_length"]
         
-        # KFC模式下的行为指导更加自然和简洁
+        # KFC模式下的行为指导更加具体和强制
         if physical >= 0.7:
-            behavior_hint = "今天身体不太舒服，但可以正常交流"
+            behavior_hint = "身体不适，必须表现出疲惫感"
         elif physical >= 0.4:
-            behavior_hint = "今天感觉有些累，但依然可以积极参与"
+            behavior_hint = "感觉有些累，应放慢节奏"
         else:
-            behavior_hint = "今天状态平稳，可以自然地聊天"
+            behavior_hint = "身体状态平稳，可正常交流"
             
         if psychological >= 0.6:
-            mood_hint = "情绪比较敏感，可以适当表达感受"
+            mood_hint = "情绪敏感，必须表现出情绪波动"
         elif psychological >= 0.3:
-            mood_hint = "情绪有些波动，允许有情绪起伏"
+            mood_hint = "情绪有些波动，应自然流露"
         else:
-            mood_hint = "心情平和，可以从容地交流"
+            mood_hint = "心情平和，但允许情绪起伏"
         
         # 获取亲密需求指导
         intimacy_guidance = self.state_manager._get_intimacy_guidance(state["stage"], current_day, cycle_length)
@@ -382,13 +393,16 @@ class PeriodStatePrompt(BasePrompt):
         if kfc_mode == "unified":
             # 统一模式下的提示词
             prompt = f"""
-你当前处于月经周期的【{stage_name}】。
+【系统状态：月经周期 - {stage_name}】
 {behavior_hint}，{mood_hint}。
 {description}
 
-性欲与亲密: {intimacy_guidance}
+【亲密需求】{intimacy_guidance}
 
-请将这些状态作为背景参考，保持正常的情绪反应，根据情境自然流露情绪，自然地交流即可。
+【强制指令】
+1. 禁止在内心独白或回复中使用“今天状态挺平和的”、“性欲虽然有点增强”等通用表述。
+2. 必须将状态特征融入角色行为，具体表现为：{behavior_hint} 和 {mood_hint}。
+3. 此状态优先级高，必须与其他提示词融合，不得冲突。
 """
         else:
             # 分离模式下的提示词
@@ -398,7 +412,10 @@ class PeriodStatePrompt(BasePrompt):
 【总体感受】{description}
 【性欲与亲密】{intimacy_guidance}
 
-根据这些状态作为背景参考，保持正常的情绪反应，自然地调整你的回复风格。
+【强制指令】
+1. 禁止在内心独白或回复中使用“今天状态挺平和的”、“性欲虽然有点增强”等通用表述。
+2. 必须将状态特征融入角色行为，具体表现为：{behavior_hint} 和 {mood_hint}。
+3. 此状态优先级高，必须与其他提示词融合，不得冲突。
 """
         
         return prompt.strip()
