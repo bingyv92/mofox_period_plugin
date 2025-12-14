@@ -90,3 +90,4 @@
 
 ---
 *由 AI 构式的月经插件，蒽，或者说赛博排卵插件*
+*神秘lust系统:https://github.com/bingyv92/lust-system*
