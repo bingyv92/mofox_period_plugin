@@ -1,11 +1,15 @@
+
 from typing import List, Tuple, Type, Dict, Any, Optional
 from datetime import datetime, timedelta
+from calendar import monthrange
+import random
 from src.plugin_system import (
     BasePlugin, register_plugin, ComponentInfo, ConfigField,
     BasePrompt, BaseCommand, ChatType
 )
 from src.plugin_system import BaseEventHandler, EventType
 from src.plugin_system.base.base_event import HandlerResult
+from src.plugin_system.base.component_types import InjectionRule, InjectionType
 from src.plugin_system.apis import storage_api
 from src.common.logger import get_logger
 
@@ -14,176 +18,438 @@ logger = get_logger("mofox_period_plugin")
 # 获取插件的本地存储实例
 plugin_storage = storage_api.get_local_storage("mofox_period_plugin")
 
-def get_last_period_date() -> str:
-    """获取上次月经开始日期，如果没有设置过则设为安装当天"""
-    last_period_date = plugin_storage.get("last_period_date", None)
-    if last_period_date is None:
-        # 首次使用，设置为今天
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        plugin_storage.set("last_period_date", today_str)
-        logger.info(f"首次安装，设置上次月经开始日期为: {today_str}")
-        return today_str
-    return last_period_date
 
-def set_last_period_date(date_str: str) -> bool:
-    """设置上次月经开始日期"""
-    try:
-        # 验证日期格式
-        datetime.strptime(date_str, "%Y-%m-%d")
-        plugin_storage.set("last_period_date", date_str)
-        logger.info(f"更新上次月经开始日期为: {date_str}")
-        return True
-    except ValueError:
-        logger.error(f"无效的日期格式: {date_str}")
-        return False
+# ============================================================================
+# 双周期锚定模型 - 核心数据结构
+# ============================================================================
 
-class PeriodStateManager:
-    """月经周期状态管理器 - 增强版本，更好的错误处理"""
+class CyclePhase:
+    """周期阶段定义"""
+    def __init__(self, name: str, name_cn: str, duration: int, day_in_phase: int):
+        self.name = name  # 阶段英文名
+        self.name_cn = name_cn  # 阶段中文名
+        self.duration = duration  # 阶段持续天数
+        self.day_in_phase = day_in_phase  # 阶段内第几天
+
+
+class DualCycleData:
+    """双周期数据"""
+    def __init__(self, anchor_day: int, start_date: datetime, 
+                 cycle1_length: int, cycle2_length: int,
+                 cycle1_menstrual_days: int, cycle2_menstrual_days: int):
+        self.anchor_day = anchor_day  # 锚点日期（1-31）
+        self.start_date = start_date  # 起始锚点日期
+        self.cycle1_length = cycle1_length  # 第一周期天数
+        self.cycle2_length = cycle2_length  # 第二周期天数
+        self.cycle1_menstrual_days = cycle1_menstrual_days  # 第一周期月经天数
+        self.cycle2_menstrual_days = cycle2_menstrual_days  # 第二周期月经天数
+        self.total_days = cycle1_length + cycle2_length  # 总天数
+        self.end_date = self._calculate_end_date()  # 结束锚点日期
+        
+    def _calculate_end_date(self) -> datetime:
+        """计算结束锚点日期（下下个月的锚点日）"""
+        # 从起始日期开始，找到第二个锚点
+        current = self.start_date
+        # 跳到下一个月
+        if current.month == 12:
+            next_month = current.replace(year=current.year + 1, month=1, day=1)
+        else:
+            next_month = current.replace(month=current.month + 1, day=1)
+        
+        # 获取下一个月的锚点日
+        days_in_month = monthrange(next_month.year, next_month.month)[1]
+        anchor = min(self.anchor_day, days_in_month)
+        
+        return next_month.replace(day=anchor)
+    
+    def to_dict(self) -> dict:
+        """转换为字典以便存储"""
+        return {
+            "anchor_day": self.anchor_day,
+            "start_date": self.start_date.isoformat(),
+            "cycle1_length": self.cycle1_length,
+            "cycle2_length": self.cycle2_length,
+            "cycle1_menstrual_days": self.cycle1_menstrual_days,
+            "cycle2_menstrual_days": self.cycle2_menstrual_days,
+            "total_days": self.total_days,
+            "end_date": self.end_date.isoformat()
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'DualCycleData':
+        """从字典恢复"""
+        return cls(
+            anchor_day=data["anchor_day"],
+            start_date=datetime.fromisoformat(data["start_date"]),
+            cycle1_length=data["cycle1_length"],
+            cycle2_length=data["cycle2_length"],
+            cycle1_menstrual_days=data["cycle1_menstrual_days"],
+            cycle2_menstrual_days=data["cycle2_menstrual_days"]
+        )
+
+
+# ============================================================================
+# 双周期锚定管理器
+# ============================================================================
+
+class DualCycleManager:
+    """双周期锚定管理器"""
     
     def __init__(self):
+        self.current_cycle: Optional[DualCycleData] = None
+        self._load_or_generate_cycle()
+    
+    def _load_or_generate_cycle(self):
+        """加载或生成双周期数据"""
+        stored_cycle = plugin_storage.get("dual_cycle_data", None)
+        
+        if stored_cycle:
+            try:
+                self.current_cycle = DualCycleData.from_dict(stored_cycle)
+                # 检查是否已过期
+                today = datetime.now()
+                if today >= self.current_cycle.end_date:
+                    logger.info("双周期已过期，重新生成")
+                    self._generate_new_cycle()
+                else:
+                    logger.info(f"加载已存储的双周期数据，有效期至 {self.current_cycle.end_date.date()}")
+            except Exception as e:
+                logger.error(f"加载双周期数据失败: {e}，重新生成")
+                self._generate_new_cycle()
+        else:
+            logger.info("首次运行，生成双周期数据")
+            self._generate_new_cycle()
+    
+    def _generate_new_cycle(self):
+        """生成新的双周期数据"""
+        # 从存储获取锚点日期配置，默认为15号
+        anchor_day = plugin_storage.get("anchor_day", 15)
+        
+        # 计算当前锚点日期
+        today = datetime.now()
+        days_in_month = monthrange(today.year, today.month)[1]
+        anchor = min(anchor_day, days_in_month)
+        
+        # 如果今天已经过了本月锚点，从本月锚点开始，否则从上月锚点开始
+        if today.day >= anchor:
+            start_date = today.replace(day=anchor)
+        else:
+            # 回到上个月
+            if today.month == 1:
+                last_month = today.replace(year=today.year - 1, month=12, day=1)
+            else:
+                last_month = today.replace(month=today.month - 1, day=1)
+            days_in_last_month = monthrange(last_month.year, last_month.month)[1]
+            anchor_last = min(anchor_day, days_in_last_month)
+            start_date = last_month.replace(day=anchor_last)
+        
+        # 计算到下一个锚点的总天数
+        next_anchor_date = self._get_next_anchor_date(start_date, anchor_day)
+        total_days = (next_anchor_date - start_date).days
+        
+        # 确保总天数足够（至少50天才能容纳两个25天周期）
+        if total_days < 50:
+            logger.warning(f"两个锚点间隔太短({total_days}天)，调整周期长度")
+            # 如果总天数不够，平均分配
+            cycle1_length = total_days // 2
+            cycle2_length = total_days - cycle1_length
+        else:
+            # 正常情况：生成第一周期（25-35天）
+            # 确保min <= max
+            min_cycle1 = 25
+            max_cycle1 = min(35, total_days - 25)  # 保证第二周期至少25天
+            
+            if max_cycle1 < min_cycle1:
+                # 如果还是不够，平均分配
+                cycle1_length = total_days // 2
+                cycle2_length = total_days - cycle1_length
+            else:
+                cycle1_length = random.randint(min_cycle1, max_cycle1)
+                cycle2_length = total_days - cycle1_length
+                
+                # 验证第二周期是否在合理范围内
+                if cycle2_length < 25:
+                    cycle1_length = total_days - 25
+                    cycle2_length = 25
+                elif cycle2_length > 35:
+                    cycle1_length = total_days - 35
+                    cycle2_length = 35
+        
+        # 随机生成月经天数（3-7天）
+        cycle1_menstrual_days = random.randint(3, 7)
+        cycle2_menstrual_days = random.randint(3, 7)
+        
+        self.current_cycle = DualCycleData(
+            anchor_day=anchor_day,
+            start_date=start_date,
+            cycle1_length=cycle1_length,
+            cycle2_length=cycle2_length,
+            cycle1_menstrual_days=cycle1_menstrual_days,
+            cycle2_menstrual_days=cycle2_menstrual_days
+        )
+        
+        # 保存到存储
+        plugin_storage.set("dual_cycle_data", self.current_cycle.to_dict())
+        
+        logger.info(f"生成新双周期: 起始={start_date.date()}, "
+                   f"周期1={cycle1_length}天(月经{cycle1_menstrual_days}天), "
+                   f"周期2={cycle2_length}天(月经{cycle2_menstrual_days}天), "
+                   f"总计={total_days}天")
+    
+    def _get_next_anchor_date(self, from_date: datetime, anchor_day: int) -> datetime:
+        """获取下一个锚点日期"""
+        # 跳到下一个月
+        if from_date.month == 12:
+            next_month = from_date.replace(year=from_date.year + 1, month=1, day=1)
+        else:
+            next_month = from_date.replace(month=from_date.month + 1, day=1)
+        
+        days_in_month = monthrange(next_month.year, next_month.month)[1]
+        anchor = min(anchor_day, days_in_month)
+        
+        return next_month.replace(day=anchor)
+    
+    def get_current_phase(self, query_date: Optional[datetime] = None) -> Tuple[CyclePhase, int, int]:
+        """
+        获取指定日期的周期阶段
+        
+        Returns:
+            Tuple[CyclePhase, 周期编号(1或2), 周期内第几天]
+        """
+        if query_date is None:
+            query_date = datetime.now()
+        
+        # 确保有有效的周期数据
+        if not self.current_cycle:
+            self._generate_new_cycle()
+        
+        # 如果查询日期超出当前周期，重新生成
+        if query_date >= self.current_cycle.end_date:
+            self._generate_new_cycle()
+        
+        # 计算距离起始日期的天数
+        days_from_start = (query_date - self.current_cycle.start_date).days
+        
+        # 如果是负数，说明查询日期在当前周期之前，需要重新生成
+        if days_from_start < 0:
+            self._generate_new_cycle()
+            days_from_start = (query_date - self.current_cycle.start_date).days
+        
+        # 确定在哪个周期
+        if days_from_start < self.current_cycle.cycle1_length:
+            # 第一周期
+            cycle_num = 1
+            day_in_cycle = days_from_start + 1
+            cycle_length = self.current_cycle.cycle1_length
+            menstrual_days = self.current_cycle.cycle1_menstrual_days
+        else:
+            # 第二周期
+            cycle_num = 2
+            day_in_cycle = days_from_start - self.current_cycle.cycle1_length + 1
+            cycle_length = self.current_cycle.cycle2_length
+            menstrual_days = self.current_cycle.cycle2_menstrual_days
+        
+        # 计算阶段
+        phase = self._calculate_phase(day_in_cycle, cycle_length, menstrual_days)
+        
+        return phase, cycle_num, day_in_cycle
+    
+    def _calculate_phase(self, day_in_cycle: int, cycle_length: int, 
+                        menstrual_days: int) -> CyclePhase:
+        """
+        计算周期内的阶段
+        
+        固定分配：
+        - 月经期：随机3-7天
+        - 卵泡期：剩余天数 - 16
+        - 排卵期：固定2天
+        - 黄体期：固定14天
+        """
+        # 月经期
+        if day_in_cycle <= menstrual_days:
+            return CyclePhase("menstrual", "月经期", menstrual_days, day_in_cycle)
+        
+        # 卵泡期天数 = 周期总长 - 月经天数 - 2（排卵）- 14（黄体）
+        follicular_days = cycle_length - menstrual_days - 2 - 14
+        
+        # 卵泡期
+        if day_in_cycle <= menstrual_days + follicular_days:
+            day_in_phase = day_in_cycle - menstrual_days
+            return CyclePhase("follicular", "卵泡期", follicular_days, day_in_phase)
+        
+        # 排卵期
+        if day_in_cycle <= menstrual_days + follicular_days + 2:
+            day_in_phase = day_in_cycle - menstrual_days - follicular_days
+            return CyclePhase("ovulation", "排卵期", 2, day_in_phase)
+        
+        # 黄体期
+        day_in_phase = day_in_cycle - menstrual_days - follicular_days - 2
+        return CyclePhase("luteal", "黄体期", 14, day_in_phase)
+    
+    def regenerate_cycle(self):
+        """强制重新生成周期"""
+        self._generate_new_cycle()
+
+
+# ============================================================================
+# 提示词模板系统
+# ============================================================================
+
+class PromptTemplates:
+    """提示词模板系统 - 客观中性的等级描述"""
+    
+    # 生理影响等级提示词（1-10）- 客观描述
+    PHYSICAL_TEMPLATES = {
+        1: "身体状态良好，精力充沛。",
+        2: "身体状态正常，偶有轻微疲惫。",
+        3: "有轻度疲劳感，腰腹略有不适。",
+        4: "感到较明显的疲劳，腰腹有酸痛感。",
+        5: "疲劳感较强，腰腹持续不适，需要更多休息。",
+        6: "疲劳明显，身体较为沉重，活动意愿降低。",
+        7: "疲劳严重，身体不适感强烈，倾向卧床休息。",
+        8: "身体极度疲惫，明显不适，活动困难。",
+        9: "身体状况很差，严重不适。",
+        10: "身体状况极差，需要医疗关注。"
+    }
+    
+    # 心理影响等级提示词（1-10）- 客观描述
+    PSYCHOLOGICAL_TEMPLATES = {
+        1: "情绪稳定，心情平和。",
+        2: "情绪基本稳定，偶有小波动。",
+        3: "情绪略有波动，对事物较为敏感。",
+        4: "情绪波动明显，耐心有所下降。",
+        5: "情绪不太稳定，容易受影响。",
+        6: "情绪波动较大，较为敏感易怒。",
+        7: "情绪很不稳定，控制力下降。",
+        8: "情绪控制困难，波动剧烈。",
+        9: "情绪极不稳定，需要更多理解。",
+        10: "情绪状态很差，需要特别关注。"
+    }
+    
+    # 痛经等级提示词（0-10）- 客观描述
+    DYSMENORRHEA_TEMPLATES = {
+        0: "无痛经症状。",
+        1: "有非常轻微的下腹不适。",
+        2: "有轻微的下腹疼痛感。",
+        3: "下腹有轻度疼痛，略感不适。",
+        4: "下腹疼痛较明显，需要注意休息。",
+        5: "下腹疼痛感较强，影响日常活动。",
+        6: "下腹疼痛明显，活动受限。",
+        7: "下腹疼痛严重，需要充分休息。",
+        8: "下腹剧烈疼痛，严重影响状态。",
+        9: "疼痛非常严重，需要医疗帮助。",
+        10: "疼痛极其剧烈，需要紧急医疗。"
+    }
+    
+    @classmethod
+    def get_physical_prompt(cls, level: int) -> str:
+        """获取生理影响等级的提示词"""
+        return cls.PHYSICAL_TEMPLATES.get(level, cls.PHYSICAL_TEMPLATES[5])
+    
+    @classmethod
+    def get_psychological_prompt(cls, level: int) -> str:
+        """获取心理影响等级的提示词"""
+        return cls.PSYCHOLOGICAL_TEMPLATES.get(level, cls.PSYCHOLOGICAL_TEMPLATES[5])
+    
+    @classmethod
+    def get_dysmenorrhea_prompt(cls, level: int) -> str:
+        """获取痛经等级的提示词"""
+        return cls.DYSMENORRHEA_TEMPLATES.get(level, cls.DYSMENORRHEA_TEMPLATES[0])
+
+
+# ============================================================================
+# 周期状态管理器
+# ============================================================================
+
+class PeriodStateManager:
+    """月经周期状态管理器 - 使用双周期锚定模型"""
+    
+    def __init__(self):
+        self.cycle_manager = DualCycleManager()
         self.last_calculated_date = None
         self.current_state = None
-        self._fallback_state = None  # 备用状态缓存
         
-    def calculate_current_state(self, cycle_length: int) -> Dict[str, Any]:
-        """计算当前周期状态 - 增强错误处理"""
-        today = datetime.now().date()
+    def calculate_current_state(self, config: dict) -> Dict[str, Any]:
+        """
+        计算当前周期状态
+        
+        Args:
+            config: 配置字典，包含各阶段的等级配置
+        """
+        today = datetime.now()
         
         # 如果已经计算过今天的状态，直接返回缓存
-        if self.last_calculated_date == today and self.current_state:
+        if self.last_calculated_date == today.date() and self.current_state:
             return self.current_state
         
         try:
-            # 从存储中获取上次月经日期
-            last_period_date = get_last_period_date()
-                
-            try:
-                last_date = datetime.strptime(last_period_date, "%Y-%m-%d").date()
-            except ValueError:
-                logger.error(f"无效的日期格式: {last_period_date}, 使用默认值")
-                last_date = datetime.now().date() - timedelta(days=14)
-                
-            # 验证周期长度
-            if not isinstance(cycle_length, int) or cycle_length < 20 or cycle_length > 40:
-                logger.warning(f"无效的周期长度: {cycle_length}，使用默认值28")
-                cycle_length = 28
-                
-            # 计算当前周期天数
-            days_passed = (today - last_date).days
-            current_day = days_passed % cycle_length + 1
+            # 获取当前阶段
+            phase, cycle_num, day_in_cycle = self.cycle_manager.get_current_phase(today)
             
-            # 确保天数在有效范围内
-            if current_day < 1 or current_day > cycle_length:
-                logger.warning(f"计算的天数超出范围: {current_day}，重新计算")
-                current_day = 1
-                
-            # 确定当前阶段
-            if current_day <= 5:
-                stage = "menstrual"  # 月经期
-            elif current_day <= 13:
-                stage = "follicular"  # 卵泡期
-            elif current_day == 14:
-                stage = "ovulation"  # 排卵期
+            # 从配置获取等级
+            physical_level = config.get(f"levels.{phase.name}.physical", 5)
+            psychological_level = config.get(f"levels.{phase.name}.psychological", 5)
+            
+            # 确保等级在1-10范围内
+            physical_level = max(1, min(10, physical_level))
+            psychological_level = max(1, min(10, psychological_level))
+            
+            # 痛经等级随机生成（仅在月经期）
+            if phase.name == "menstrual":
+                dysmenorrhea_level = self._generate_dysmenorrhea_level()
             else:
-                stage = "luteal"  # 黄体期
-                
-            # 计算影响值
-            physical_impact, psychological_impact = self._calculate_impacts(stage, current_day, cycle_length)
-            
-            # 验证影响值
-            physical_impact = max(0.0, min(1.0, physical_impact))
-            psychological_impact = max(0.0, min(1.0, psychological_impact))
+                dysmenorrhea_level = 0
             
             self.current_state = {
-                "stage": stage,
-                "current_day": current_day,
-                "cycle_length": cycle_length,
-                "physical_impact": round(physical_impact, 2),
-                "psychological_impact": round(psychological_impact, 2),
-                "stage_name_cn": self._get_stage_name_cn(stage),
-                "description": self._get_stage_description(stage),
-                "last_updated": today.isoformat(),
+                "stage": phase.name,
+                "stage_name_cn": phase.name_cn,
+                "cycle_num": cycle_num,
+                "day_in_cycle": day_in_cycle,
+                "day_in_phase": phase.day_in_phase,
+                "phase_duration": phase.duration,
+                "physical_level": physical_level,
+                "psychological_level": psychological_level,
+                "dysmenorrhea_level": dysmenorrhea_level,
+                "description": self._get_stage_description(phase.name),
+                "last_updated": today.date().isoformat(),
                 "status": "normal"
             }
             
-            self.last_calculated_date = today
-            self._fallback_state = self.current_state.copy()  # 保存备用状态
+            self.last_calculated_date = today.date()
             
             return self.current_state
             
         except Exception as e:
             logger.error(f"计算周期状态失败: {e}")
-            
-            # 如果存在备用状态，返回备用状态
-            if self._fallback_state:
-                logger.info("使用备用状态")
-                self._fallback_state["status"] = "fallback"
-                self._fallback_state["error"] = str(e)
-                return self._fallback_state
-            
-            # 创建默认状态
-            logger.info("创建默认状态")
-            default_state = {
+            # 返回默认状态
+            return {
                 "stage": "follicular",
-                "current_day": 7,
-                "cycle_length": 28,
-                "physical_impact": 0.1,
-                "psychological_impact": 0.1,
                 "stage_name_cn": "卵泡期",
+                "cycle_num": 1,
+                "day_in_cycle": 10,
+                "day_in_phase": 5,
+                "phase_duration": 10,
+                "physical_level": 2,
+                "psychological_level": 2,
+                "dysmenorrhea_level": 0,
                 "description": "状态恢复，情绪平稳，思维清晰",
-                "last_updated": today.isoformat(),
-                "status": "default",
+                "last_updated": today.date().isoformat(),
+                "status": "error",
                 "error": str(e)
             }
-            
-            return default_state
-        
-    def _calculate_impacts(self, stage: str, current_day: int, cycle_length: int) -> Tuple[float, float]:
-        """计算生理和心理影响值"""
-        # 基础影响值配置
-        base_impacts = {
-            "menstrual": (0.8, 0.7),    # 生理高，心理中高
-            "follicular": (0.1, 0.1),   # 生理低，心理低
-            "ovulation": (0.4, 0.2),    # 生理中，心理低
-            "luteal": (0.6, 0.5)        # 生理中高，心理中
-        }
-        
-        physical_base, psychological_base = base_impacts[stage]
-        
-        # 在阶段内进行微调
-        if stage == "menstrual":
-            # 月经期：开始几天影响更强
-            day_in_stage = current_day
-            intensity = 1.0 - (day_in_stage - 1) / 5 * 0.3
-            physical_impact = physical_base * intensity
-            psychological_impact = psychological_base * intensity
-            
-        elif stage == "luteal":
-            # 黄体期：后期影响更强（PMS症状）
-            day_in_stage = current_day - 14
-            total_days = cycle_length - 14
-            intensity = 0.7 + (day_in_stage / total_days) * 0.3
-            physical_impact = min(physical_base * intensity, 0.8)
-            psychological_impact = min(psychological_base * intensity, 0.7)
-            
-        else:
-            # 其他阶段使用基础值
-            physical_impact = physical_base
-            psychological_impact = psychological_base
-            
-        return round(physical_impact, 2), round(psychological_impact, 2)
-        
-        
-    def _get_stage_name_cn(self, stage: str) -> str:
-        """获取阶段中文名称"""
-        names = {
-            "menstrual": "月经期",
-            "follicular": "卵泡期", 
-            "ovulation": "排卵期",
-            "luteal": "黄体期"
-        }
-        return names.get(stage, "未知阶段")
-        
+    
+    def _generate_dysmenorrhea_level(self) -> int:
+        """生成痛经等级"""
+        rand = random.random()
+        if rand < 0.3:  # 30%概率无痛经
+            return 0
+        elif rand < 0.7:  # 40%概率轻度痛经(1-3)
+            return random.randint(1, 3)
+        elif rand < 0.9:  # 20%概率中度痛经(4-6)
+            return random.randint(4, 6)
+        else:  # 10%概率重度痛经(7-10)
+            return random.randint(7, 10)
+    
     def _get_stage_description(self, stage: str) -> str:
         """获取阶段描述"""
         descriptions = {
@@ -194,7 +460,10 @@ class PeriodStateManager:
         }
         return descriptions.get(stage, "")
 
-from src.plugin_system.base.component_types import InjectionRule, InjectionType
+
+# ============================================================================
+# Prompt组件
+# ============================================================================
 
 class PeriodStatePrompt(BasePrompt):
     """月经周期状态提示词注入"""
@@ -202,8 +471,6 @@ class PeriodStatePrompt(BasePrompt):
     prompt_name = "period_state_prompt"
     prompt_description = "根据月经周期状态调整机器人行为风格"
     
-    # 注入到核心风格Prompt中，支持KFC模式
-    # 使用新的 injection_rules 替代旧的 injection_point，采用 APPEND 方式并设置较低优先级，避免占据首行
     injection_rules = [
         InjectionRule(
             target_prompt="s4u_style_prompt",
@@ -232,157 +499,77 @@ class PeriodStatePrompt(BasePrompt):
         self.state_manager = PeriodStateManager()
         
     async def execute(self) -> str:
-        """生成周期状态提示词 - 增强KFC支持"""
+        """生成周期状态提示词"""
         try:
-            # 获取配置，增强错误处理和默认值
-            cycle_length = self.get_config("cycle.cycle_length", 28)
             enabled = self.get_config("plugin.enabled", False)
             debug_mode = self.get_config("plugin.debug_mode", False)
-            
-            # 检查KFC集成配置
-            kfc_enabled = self.get_config("kfc_integration.enabled", True)
-            kfc_mode = self.get_config("kfc_integration.mode", "unified")
-            kfc_priority = self.get_config("kfc_integration.priority", 100)
             
             if not enabled:
                 if debug_mode:
                     logger.debug("插件未启用，不生成提示词")
                 return ""
-                
-            # 计算当前状态
-            state = self.state_manager.calculate_current_state(cycle_length)
             
-            # 根据目标提示词类型生成不同的提示词
+            # 收集配置
+            config = {
+                "levels.menstrual.physical": self.get_config("levels.menstrual_physical", 5),
+                "levels.menstrual.psychological": self.get_config("levels.menstrual_psychological", 4),
+                "levels.follicular.physical": self.get_config("levels.follicular_physical", 2),
+                "levels.follicular.psychological": self.get_config("levels.follicular_psychological", 2),
+                "levels.ovulation.physical": self.get_config("levels.ovulation_physical", 3),
+                "levels.ovulation.psychological": self.get_config("levels.ovulation_psychological", 2),
+                "levels.luteal.physical": self.get_config("levels.luteal_physical", 4),
+                "levels.luteal.psychological": self.get_config("levels.luteal_psychological", 3),
+            }
+            
+            # 计算当前状态
+            state = self.state_manager.calculate_current_state(config)
+            
+            # 获取目标提示词名称（通过属性访问）
             target_prompt = getattr(self, 'target_prompt_name', None)
             
-            # 增强KFC模式检测
-            is_kfc_mode = False
-            if target_prompt:
-                target_name = target_prompt.lower()
-                if any(kfc_key in target_name for kfc_key in ['kfc', 'kokoro', 'flow', 'chatter', '私聊', '心流']):
-                    is_kfc_mode = True
-            
-            # 如果启用了KFC集成且检测到KFC模式
-            if kfc_enabled and is_kfc_mode:
-                if debug_mode:
-                    logger.debug(f"检测到KFC模式: {target_prompt}，使用KFC提示词")
-                prompt = self._generate_kfc_prompt(state, kfc_mode)
-            else:
-                if debug_mode:
-                    logger.debug(f"使用普通模式提示词: {target_prompt}")
-                prompt = self._generate_prompt(state)
+            # 生成提示词
+            prompt = self._generate_prompt(state)
             
             if debug_mode:
-                logger.debug(f"周期状态提示词 ({target_prompt}, KFC: {is_kfc_mode}): {prompt}")
+                logger.debug(f"周期状态提示词: {prompt}")
             
             return prompt
             
         except Exception as e:
             logger.error(f"生成周期状态提示词失败: {e}")
-            # 返回一个安全的默认提示词
-            return "你今天的状态不错，可以自然地交流。"
+            return ""
             
     def _generate_prompt(self, state: Dict[str, Any]) -> str:
         """根据状态生成提示词"""
         stage_name = state["stage_name_cn"]
-        physical = state["physical_impact"]
-        psychological = state["psychological_impact"]
-        description = state["description"]
+        physical_level = state["physical_level"]
+        psychological_level = state["psychological_level"]
+        dysmenorrhea_level = state["dysmenorrhea_level"]
         
-        # 根据影响值生成具体的行为指导
-        behavior_guidance = self._get_behavior_guidance(physical, psychological)
+        # 获取等级对应的提示词
+        physical_prompt = PromptTemplates.get_physical_prompt(physical_level)
+        psychological_prompt = PromptTemplates.get_psychological_prompt(psychological_level)
         
-        prompt = f"""
-【系统状态设定：月经周期】
-你当前处于月经周期的【{stage_name}】阶段。
-生理影响强度: {physical}/1.0，心理影响强度: {psychological}/1.0。
-状态特征: {description}
+        # 简洁的提示词
+        prompt_parts = [
+            f"【当前状态：{stage_name} 第{state['day_in_phase']}天】",
+            f"生理: {physical_prompt}",
+            f"心理: {psychological_prompt}"
+        ]
+        
+        # 如果有痛经，添加痛经提示词
+        if dysmenorrhea_level > 0 and state["stage"] == "menstrual":
+            dysmenorrhea_prompt = PromptTemplates.get_dysmenorrhea_prompt(dysmenorrhea_level)
+            prompt_parts.append(f"痛经: {dysmenorrhea_prompt}")
+        
+        prompt_parts.append("以上状态会自然地影响你的回复风格，保持真实感即可。")
+        
+        return "\n".join(prompt_parts)
 
-【强制行为调整】
-你必须根据以上状态调整你的回复风格和行为表现，不得忽略或绕过该状态的影响。
-具体调整要求：
-{behavior_guidance}
 
-【重要指令】
-- 不得使用"今天状态挺平和的"等通用表述来淡化状态影响。
-- 必须将状态特征融入你的角色行为中，例如情绪敏感时语气更柔和，身体不适时表现出需要休息。
-- 此状态设定具有高优先级，必须与其他提示词融合，不得冲突。
-- 保持对话的自然流畅，但确保状态影响得到体现。
-
-请立即执行。
-"""
-        return prompt.strip()
-        
-    def _get_behavior_guidance(self, physical: float, psychological: float) -> str:
-        """根据影响值生成具体行为指导，必须遵守"""
-        guidance = []
-        
-        # 生理影响指导
-        if physical >= 0.7:
-            guidance.append("• 你必须表现出身体不适，例如在回复中提及疲惫、需要休息，语气可略显无力，但不要过度抱怨。")
-        elif physical >= 0.4:
-            guidance.append("• 你应表现出些许疲惫，可以放慢回复节奏，用词可稍显倦怠，但依然保持交流意愿。")
-        else:
-            guidance.append("• 你感觉身体状态平稳，可以自然地互动交流，但也要注意状态可能带来的细微影响。")
-            
-        # 心理影响指导
-        if psychological >= 0.6:
-            guidance.append("• 你必须表现出情绪敏感，例如更容易感到委屈、烦躁或需要安慰，回复时可带有情绪波动，允许适当的情感宣泄。")
-        elif psychological >= 0.3:
-            guidance.append("• 你应表现出情绪波动，可以自然地表现情绪变化，例如偶尔急躁或忧郁，不必强行保持平和。")
-        else:
-            guidance.append("• 你情绪平和稳定，可以从容地交流，但也允许有情绪起伏，不要刻意压抑。")
-            
-        return "\n".join(guidance)
-        
-    def _generate_kfc_prompt(self, state: Dict[str, Any], kfc_mode: str) -> str:
-        """生成KFC模式下的提示词"""
-        stage_name = state["stage_name_cn"]
-        physical = state["physical_impact"]
-        psychological = state["psychological_impact"]
-        description = state["description"]
-        
-        # KFC模式下的行为指导更加具体和强制
-        if physical >= 0.7:
-            behavior_hint = "身体不适，必须表现出疲惫感"
-        elif physical >= 0.4:
-            behavior_hint = "感觉有些累，应放慢节奏"
-        else:
-            behavior_hint = "身体状态平稳，可正常交流"
-            
-        if psychological >= 0.6:
-            mood_hint = "情绪敏感，必须表现出情绪波动"
-        elif psychological >= 0.3:
-            mood_hint = "情绪有些波动，应自然流露"
-        else:
-            mood_hint = "心情平和，但允许情绪起伏"
-        
-        if kfc_mode == "unified":
-            # 统一模式下的提示词
-            prompt = f"""
-【系统状态：月经周期 - {stage_name}】
-{behavior_hint}，{mood_hint}。
-{description}
-
-【强制指令】
-1. 禁止在内心独白或回复中使用"今天状态挺平和的"等通用表述。
-2. 必须将状态特征融入角色行为，具体表现为：{behavior_hint} 和 {mood_hint}。
-3. 此状态优先级高，必须与其他提示词融合，不得冲突。
-"""
-        else:
-            # 分离模式下的提示词
-            prompt = f"""
-【身体状态】{behavior_hint}
-【心理状态】{mood_hint}
-【总体感受】{description}
-
-【强制指令】
-1. 禁止在内心独白或回复中使用"今天状态挺平和的"等通用表述。
-2. 必须将状态特征融入角色行为，具体表现为：{behavior_hint} 和 {mood_hint}。
-3. 此状态优先级高，必须与其他提示词融合，不得冲突。
-"""
-        
-        return prompt.strip()
+# ============================================================================
+# Command组件
+# ============================================================================
 
 class PeriodStatusCommand(BaseCommand):
     """查询当前月经周期状态命令"""
@@ -390,7 +577,7 @@ class PeriodStatusCommand(BaseCommand):
     command_name = "period_status"
     command_description = "查询当前月经周期状态"
     command_pattern = r"^/(period|月经状态|周期状态)$"
-    chat_type_allow = ChatType.PRIVATE  # 只在私聊中使用
+    chat_type_allow = ChatType.PRIVATE
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -399,32 +586,39 @@ class PeriodStatusCommand(BaseCommand):
     async def execute(self) -> Tuple[bool, str, bool]:
         """执行状态查询"""
         try:
-            # 获取配置
-            cycle_length = self.get_config("cycle.cycle_length", 28)
             enabled = self.get_config("plugin.enabled", False)
             
             if not enabled:
                 await self.send_text("❌ 月经周期插件未启用")
                 return True, "插件未启用", True
-                
-            # 计算当前状态
-            state = self.state_manager.calculate_current_state(cycle_length)
             
-            # 获取并显示上次月经日期
-            last_period_date = get_last_period_date()
+            # 收集配置
+            config = {
+                "levels.menstrual.physical": self.get_config("levels.menstrual_physical", 5),
+                "levels.menstrual.psychological": self.get_config("levels.menstrual_psychological", 4),
+                "levels.follicular.physical": self.get_config("levels.follicular_physical", 2),
+                "levels.follicular.psychological": self.get_config("levels.follicular_psychological", 2),
+                "levels.ovulation.physical": self.get_config("levels.ovulation_physical", 3),
+                "levels.ovulation.psychological": self.get_config("levels.ovulation_psychological", 2),
+                "levels.luteal.physical": self.get_config("levels.luteal_physical", 4),
+                "levels.luteal.psychological": self.get_config("levels.luteal_psychological", 3),
+            }
+            
+            # 计算当前状态
+            state = self.state_manager.calculate_current_state(config)
             
             # 生成状态报告
-            report = self._generate_status_report(state, last_period_date)
+            report = self._generate_status_report(state)
             await self.send_text(report)
             
             return True, "发送周期状态报告", True
             
         except Exception as e:
             logger.error(f"查询周期状态失败: {e}")
-            await self.send_text("❌ 查询状态失败，请检查配置")
+            await self.send_text("❌ 查询状态失败")
             return False, f"查询失败: {e}", True
             
-    def _generate_status_report(self, state: Dict[str, Any], last_period_date: str) -> str:
+    def _generate_status_report(self, state: Dict[str, Any]) -> str:
         """生成状态报告"""
         stage_emoji = {
             "menstrual": "🩸",
@@ -435,83 +629,127 @@ class PeriodStatusCommand(BaseCommand):
         
         emoji = stage_emoji.get(state["stage"], "❓")
         
+        # 获取双周期信息
+        cycle_manager = self.state_manager.cycle_manager
+        cycle_data = cycle_manager.current_cycle
+        
         report = f"""
-{emoji} 月经周期状态报告
+{emoji} 月经周期状态报告（双周期模型）
 ━━━━━━━━━━━━━━━━━━
-📅 当前阶段: {state['stage_name_cn']}
-🔢 周期第 {state['current_day']} 天 / {state['cycle_length']} 天
-📆 上次月经日期: {last_period_date}
+📅 当前阶段: {state['stage_name_cn']} 第{state['day_in_phase']}天/{state['phase_duration']}天
+🔄 周期编号: 第{state['cycle_num']}周期 第{state['day_in_cycle']}天
+📆 锚点日期: 每月{cycle_data.anchor_day}号
+⏰ 周期有效期: {cycle_data.start_date.date()} 至 {cycle_data.end_date.date()}
 
-💊 生理影响: {state['physical_impact']}/1.0
-💭 心理影响: {state['psychological_impact']}/1.0
+💊 生理影响: 等级 {state['physical_level']}/10
+💭 心理影响: 等级 {state['psychological_level']}/10"""
+
+        if state.get('dysmenorrhea_level', 0) > 0 and state['stage'] == 'menstrual':
+            report += f"\n🔥 痛经程度: 等级 {state['dysmenorrhea_level']}/10"
+        
+        report += f"""
 
 📝 状态描述:
 {state['description']}
 ━━━━━━━━━━━━━━━━━━
-💡 提示: 这些状态会影响我的回复风格和行为表现
-💡 可使用 /set_period YYYY-MM-DD 修改上次月经日期
-        """.strip()
+💡 提示: 等级越高影响越严重
+💡 痛经等级在月经期自动随机生成
+💡 使用 /regenerate_cycle 重新生成双周期
+💡 可在配置文件中调整各阶段影响等级"""
         
-        return report
+        return report.strip()
 
-class SetPeriodCommand(BaseCommand):
-    """设置上次月经开始日期命令"""
+
+class RegenerateCycleCommand(BaseCommand):
+    """重新生成双周期命令"""
     
-    command_name = "set_period"
-    command_description = "设置上次月经开始日期"
-    command_pattern = r"^/(set_period|设置月经日期)\s+(\d{4}-\d{2}-\d{2})$"
-    chat_type_allow = ChatType.PRIVATE  # 只在私聊中使用
+    command_name = "regenerate_cycle"
+    command_description = "强制重新生成双周期数据"
+    command_pattern = r"^/(regenerate_cycle|重新生成周期|刷新周期)$"
+    chat_type_allow = ChatType.PRIVATE
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.state_manager = PeriodStateManager()
+        
     async def execute(self) -> Tuple[bool, str, bool]:
-        """执行设置月经日期"""
+        """执行重新生成周期"""
         try:
-            # 从匹配中获取日期
-            import re
-            match = re.match(self.command_pattern, self.message_text)
-            if not match:
-                await self.send_text("❌ 格式错误，请使用: /set_period YYYY-MM-DD")
-                return True, "格式错误", True
-                
-            date_str = match.group(2)
+            enabled = self.get_config("plugin.enabled", False)
             
-            if set_last_period_date(date_str):
-                await self.send_text(f"✅ 上次月经开始日期已更新为: {date_str}")
-                return True, f"设置月经日期: {date_str}", True
-            else:
-                await self.send_text("❌ 日期格式无效，请使用 YYYY-MM-DD 格式")
-                return True, "日期格式无效", True
-                
+            if not enabled:
+                await self.send_text("❌ 月经周期插件未启用")
+                return True, "插件未启用", True
+            
+            # 重新生成周期
+            self.state_manager.cycle_manager.regenerate_cycle()
+            cycle_data = self.state_manager.cycle_manager.current_cycle
+            
+            msg = f"""
+✅ 双周期已重新生成
+
+📅 锚点日期: 每月{cycle_data.anchor_day}号
+📆 起始日期: {cycle_data.start_date.date()}
+📆 结束日期: {cycle_data.end_date.date()}
+
+🔄 第一周期: {cycle_data.cycle1_length}天（月经{cycle_data.cycle1_menstrual_days}天）
+🔄 第二周期: {cycle_data.cycle2_length}天（月经{cycle_data.cycle2_menstrual_days}天）
+📊 总天数: {cycle_data.total_days}天
+
+使用 /period 查看当前状态"""
+            
+            await self.send_text(msg)
+            return True, "重新生成双周期", True
+            
         except Exception as e:
-            logger.error(f"设置月经日期失败: {e}")
-            await self.send_text("❌ 设置失败，请检查输入")
-            return False, f"设置失败: {e}", True
+            logger.error(f"重新生成周期失败: {e}")
+            await self.send_text("❌ 重新生成失败")
+            return False, f"重新生成失败: {e}", True
+
+
+# ============================================================================
+# Event Handler
+# ============================================================================
 
 class PeriodStateUpdateHandler(BaseEventHandler):
     """周期状态更新处理器"""
     
     handler_name = "period_state_updater"
-    handler_description = "定期更新月经周期状态"
-    init_subscribe = [EventType.ON_START]  # 启动时初始化
+    handler_description = "初始化月经周期状态管理（双周期模型）"
+    init_subscribe = [EventType.ON_START]
     
     async def execute(self, params: dict) -> HandlerResult:
         """初始化状态管理器"""
         try:
-            # 在启动时预计算一次状态，确保提示词正确生成
             enabled = self.get_config("plugin.enabled", False)
             
             if enabled:
-                # 获取或初始化上次月经日期
-                last_period_date = get_last_period_date()
-                logger.info(f"月经周期状态管理器初始化完成，上次月经日期: {last_period_date}")
+                # 将配置的anchor_day保存到storage，供DualCycleManager使用
+                anchor_day = self.get_config("cycle.anchor_day", 15)
+                plugin_storage.set("anchor_day", anchor_day)
+                
+                # 初始化双周期管理器
+                cycle_manager = DualCycleManager()
+                logger.info(f"双周期锚定模型初始化完成（锚点日期: 每月{anchor_day}号）")
+                
+                if cycle_manager.current_cycle:
+                    logger.info(f"当前双周期: 起始={cycle_manager.current_cycle.start_date.date()}, "
+                               f"结束={cycle_manager.current_cycle.end_date.date()}, "
+                               f"总天数={cycle_manager.current_cycle.total_days}")
                 
         except Exception as e:
             logger.error(f"周期状态管理器初始化失败: {e}")
             
         return HandlerResult(success=True, continue_process=True)
 
+
+# ============================================================================
+# 插件主类
+# ============================================================================
+
 @register_plugin
 class MofoxPeriodPlugin(BasePlugin):
-    """月经周期状态插件"""
+    """月经周期状态插件 - 双周期锚定模型版本"""
     
     plugin_name = "mofox_period_plugin"
     enable_plugin = True
@@ -519,116 +757,72 @@ class MofoxPeriodPlugin(BasePlugin):
     python_dependencies = []
     config_file_name = "config.toml"
     
-    # 配置Schema定义 - 增强版本，包含KFC集成和更好的错误处理
+    # 配置Schema定义 - 扁平化结构
     config_schema = {
         "plugin": {
             "enabled": ConfigField(
                 type=bool,
-                default=False,
+                default=True,
                 description="是否启用月经周期状态插件"
             ),
             "config_version": ConfigField(
                 type=str,
-                default="1.1.0",
-                description="配置文件版本"
+                default="3.0.0",
+                description="配置文件版本（3.0使用双周期锚定模型）"
             ),
             "debug_mode": ConfigField(
                 type=bool,
                 default=False,
-                description="是否启用调试模式，会输出更多日志信息"
+                description="是否启用调试模式"
             )
         },
         "cycle": {
-            "cycle_length": ConfigField(
+            "anchor_day": ConfigField(
                 type=int,
-                default=28,
-                description="月经周期长度 (天)",
-                example="28"
-            ),
-            "auto_detect": ConfigField(
-                type=bool,
-                default=True,
-                description="是否自动检测和适应周期变化"
+                default=15,
+                description="锚点日期（1-31），每月固定号数作为周期计算基准"
             )
         },
-        "impacts": {
+        "levels": {
             "menstrual_physical": ConfigField(
-                type=float,
-                default=0.8,
-                description="月经期生理影响强度 (0-1)",
-                example="0.8"
+                type=int,
+                default=5,
+                description="月经期生理影响等级（1-10）"
             ),
             "menstrual_psychological": ConfigField(
-                type=float,
-                default=0.7,
-                description="月经期心理影响强度 (0-1)",
-                example="0.7"
+                type=int,
+                default=4,
+                description="月经期心理影响等级（1-10）"
             ),
             "follicular_physical": ConfigField(
-                type=float,
-                default=0.1,
-                description="卵泡期生理影响强度 (0-1)",
-                example="0.1"
+                type=int,
+                default=2,
+                description="卵泡期生理影响等级（1-10）"
             ),
             "follicular_psychological": ConfigField(
-                type=float,
-                default=0.1,
-                description="卵泡期心理影响强度 (0-1)",
-                example="0.1"
+                type=int,
+                default=2,
+                description="卵泡期心理影响等级（1-10）"
             ),
             "ovulation_physical": ConfigField(
-                type=float,
-                default=0.4,
-                description="排卵期生理影响强度 (0-1)",
-                example="0.4"
+                type=int,
+                default=3,
+                description="排卵期生理影响等级（1-10）"
             ),
             "ovulation_psychological": ConfigField(
-                type=float,
-                default=0.2,
-                description="排卵期心理影响强度 (0-1)",
-                example="0.2"
+                type=int,
+                default=2,
+                description="排卵期心理影响等级（1-10）"
             ),
             "luteal_physical": ConfigField(
-                type=float,
-                default=0.6,
-                description="黄体期生理影响强度 (0-1)",
-                example="0.6"
+                type=int,
+                default=4,
+                description="黄体期生理影响等级（1-10）"
             ),
             "luteal_psychological": ConfigField(
-                type=float,
-                default=0.5,
-                description="黄体期心理影响强度 (0-1)",
-                example="0.5"
-            )
-        },
-        "kfc_integration": {
-            "enabled": ConfigField(
-                type=bool,
-                default=True,
-                description="是否启用KFC（私聊模式）集成"
-            ),
-            "mode": ConfigField(
-                type=str,
-                default="unified",
-                description="KFC工作模式: unified(统一模式) 或 split(分离模式)",
-                example="unified"
-            ),
-            "priority": ConfigField(
                 type=int,
-                default=100,
-                description="KFC模式下提示词注入的优先级"
-            )
-        },
-        "backup": {
-            "auto_backup": ConfigField(
-                type=bool,
-                default=True,
-                description="是否自动备份配置和数据"
-            ),
-            "backup_days": ConfigField(
-                type=int,
-                default=30,
-                description="备份保留天数"
+                default=3,
+                description="黄体期心理影响等级（1-10）"
             )
         }
     }
@@ -638,101 +832,33 @@ class MofoxPeriodPlugin(BasePlugin):
         components = []
         
         # 总是注册状态更新处理器
-        components.append((PeriodStateUpdateHandler.get_handler_info(), PeriodStateUpdateHandler))
+        components.append((
+            PeriodStateUpdateHandler.get_handler_info(),
+            PeriodStateUpdateHandler
+        ))
         
         # 根据配置决定是否注册其他组件
         if self.get_config("plugin.enabled", False):
-            components.append((PeriodStatePrompt.get_prompt_info(), PeriodStatePrompt))
-            components.append((PeriodStatusCommand.get_command_info(), PeriodStatusCommand))
-            components.append((SetPeriodCommand.get_command_info(), SetPeriodCommand))
+            # Prompt组件
+            components.append((
+                PeriodStatePrompt.get_prompt_info(),
+                PeriodStatePrompt
+            ))
+            
+            # Command组件 - 使用BaseCommand
+            components.append((
+                PeriodStatusCommand.get_command_info(),
+                PeriodStatusCommand
+            ))
+            
+            components.append((
+                RegenerateCycleCommand.get_command_info(),
+                RegenerateCycleCommand
+            ))
             
         return components
     
     def __init__(self, *args, **kwargs):
-        """插件初始化，增强错误处理和配置兼容"""
+        """插件初始化"""
         super().__init__(*args, **kwargs)
-        self._ensure_config_compatibility()
-    
-    def _ensure_config_compatibility(self):
-        """确保配置向后兼容"""
-        try:
-            # 检查并升级配置版本
-            current_version = self.get_config("plugin.config_version", "1.0.0")
-            if current_version == "1.0.0":
-                logger.info("检测到旧版本配置，正在升级...")
-                
-                # 设置新版本号
-                self.set_config("plugin.config_version", "1.1.0")
-                
-                # 确保KFC集成配置存在
-                if not self.has_config("kfc_integration.enabled"):
-                    self.set_config("kfc_integration.enabled", True)
-                    logger.info("添加KFC集成配置")
-                
-                if not self.has_config("kfc_integration.mode"):
-                    self.set_config("kfc_integration.mode", "unified")
-                    logger.info("添加KFC模式配置")
-                
-                if not self.has_config("kfc_integration.priority"):
-                    self.set_config("kfc_integration.priority", 100)
-                    logger.info("添加KFC优先级配置")
-                
-                # 确保其他新配置项存在
-                if not self.has_config("plugin.debug_mode"):
-                    self.set_config("plugin.debug_mode", False)
-                    logger.info("添加调试模式配置")
-                
-                if not self.has_config("cycle.auto_detect"):
-                    self.set_config("cycle.auto_detect", True)
-                    logger.info("添加自动检测配置")
-                
-                if not self.has_config("backup.auto_backup"):
-                    self.set_config("backup.auto_backup", True)
-                    logger.info("添加自动备份配置")
-                
-                if not self.has_config("backup.backup_days"):
-                    self.set_config("backup.backup_days", 30)
-                    logger.info("添加备份天数配置")
-                
-                logger.info("配置升级完成")
-            
-            # 验证关键配置项
-            self._validate_critical_configs()
-            
-        except Exception as e:
-            logger.error(f"配置兼容性检查失败: {e}")
-    
-    def _validate_critical_configs(self):
-        """验证关键配置项的有效性"""
-        try:
-            # 验证周期长度
-            cycle_length = self.get_config("cycle.cycle_length", 28)
-            if not isinstance(cycle_length, int) or cycle_length < 20 or cycle_length > 40:
-                logger.warning(f"周期长度配置无效: {cycle_length}，使用默认值28")
-                self.set_config("cycle.cycle_length", 28)
-            
-            # 验证影响强度值
-            for stage in ["menstrual", "follicular", "ovulation", "luteal"]:
-                for impact_type in ["physical", "psychological"]:
-                    key = f"impacts.{stage}_{impact_type}"
-                    value = self.get_config(key, 0.5)
-                    if not isinstance(value, (int, float)) or value < 0 or value > 1:
-                        logger.warning(f"影响强度配置无效: {key}={value}，使用默认值0.5")
-                        self.set_config(key, 0.5)
-            
-            # 验证KFC模式
-            kfc_mode = self.get_config("kfc_integration.mode", "unified")
-            if kfc_mode not in ["unified", "split"]:
-                logger.warning(f"KFC模式配置无效: {kfc_mode}，使用默认值unified")
-                self.set_config("kfc_integration.mode", "unified")
-            
-            # 验证优先级
-            priority = self.get_config("kfc_integration.priority", 100)
-            if not isinstance(priority, int) or priority < 0 or priority > 1000:
-                logger.warning(f"KFC优先级配置无效: {priority}，使用默认值100")
-                self.set_config("kfc_integration.priority", 100)
-            
-            logger.info("关键配置验证完成")
-            
-        except Exception as e:
-            logger.error(f"配置验证失败: {e}")
+        logger.info("月经周期插件已加载（双周期锚定模型 v3.0）")
