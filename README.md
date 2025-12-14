@@ -131,4 +131,5 @@ luteal_psychological = 3
 温馨提示：本插件旨在增加机器人的角色真实感，使用时应考虑受众感受，避免在不适宜的场合使用。
 ---
 *由 AI 构式的月经插件，蒽，或者说赛博排卵插件*
+
 *神秘lust系统:https://github.com/bingyv92/lust-system*
