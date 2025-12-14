@@ -1,0 +1,4468 @@
+MoFox_Bot插件开发文档
+欢迎来到MoFox_Bot插件系统开发文档！这里是你开始插件开发旅程的最佳起点。
+
+新手入门
+📖 快速开始指南 - 快速创建你的第一个插件
+组件功能详解
+🧱 Action组件详解 - 掌握最核心的Action组件
+💻 Command组件详解 - 学习直接响应命令的组件
+🔧 Tool组件详解 - 了解如何扩展信息获取能力
+🧬 插件元数据系统指南 - 学习如何定义插件的元数据⚙️ 配置文件系统指南 - 学会使用自动生成的插件配置文件
+🔑 权限系统使用指南 - 学习如何使用声明式API来注册插件的权限节点
+Command vs Action 选择指南
+
+使用Command的场景
+✅ 用户需要明确调用特定功能
+✅ 需要精确的参数控制
+✅ 管理和配置操作
+✅ 查询和信息显示
+✅ 系统维护命令
+使用Action的场景
+✅ 增强麦麦的智能行为
+✅ 根据上下文自动触发
+✅ 情绪和表情表达
+✅ 智能建议和帮助
+✅ 随机化的互动
+API浏览
+消息发送与处理API
+📤 发送API - 各种类型消息发送接口
+消息API - 消息获取，消息构建，消息查询接口
+聊天流API - 聊天流管理和查询接口
+适配器命令API - 一个向适配器对应的平台发送适配器不直接支持命令的接口
+AI与生成API
+LLM API - 大语言模型交互接口，可以使用内置LLM生成内容
+✨ 回复生成器API - 智能回复生成接口，可以使用内置风格化生成器
+表情包API
+😊 表情包API - 表情包选择和管理接口
+关系系统API
+人物信息API - 用户信息，处理麦麦认识的人和关系的接口
+数据与配置API
+🗄️ 数据库API - 数据库操作接口
+⚙️ 配置API - 配置读取和用户信息接口
+插件和组件管理API
+🔌 插件API - 插件加载和管理接口
+🧩 组件API - 组件注册和管理接口
+日志API
+📜 日志API - logger实例获取接口
+工具API
+🔧 工具API - tool获取接口
+本地储存API
+🗄️ 本地储存API - 本地数据存储接口
+支持
+如果你在文档中发现错误或需要补充，请：
+
+检查最新的文档版本
+查看相关示例代码
+参考其他类似插件
+提交文档仓库issue
+一个方便的小设计
+我们在__init__.py中定义了一个__all__变量，包含了所有需要导出的类和函数。 这样在其他地方导入时，可以直接使用 from src.plugin_system import * 来导入所有插件相关的类和函数。 或者你可以直接使用 from src.plugin_system import BasePlugin, register_plugin, ComponentInfo 之类的方式来导入你需要的部分。
+
+另一个“隐藏”的设计：on_plugin_loaded 钩子
+除了常规的事件，插件主类 (BasePlugin) 还可以实现一个特殊的钩子方法：on_plugin_loaded。
+
+from src.plugin_system import BasePlugin, register_plugin
+
+@register_plugin
+class MyAwesomePlugin(BasePlugin):
+    plugin_name = "my_awesome_plugin"
+    
+    async def on_plugin_loaded(self):
+        # 在这里编写你的代码
+        print(f"插件 {self.plugin_name} 的所有组件都已加载完毕！")
+        # 例如，可以在这里执行一些依赖其他插件组件的初始化操作
+执行时机: 这个方法会在所有插件的所有组件（Action, Command, Tool, Handler）都加载并注册完毕后被调用。
+使用场景: 它为你提供了一个“总览全局”的机会。当你需要执行一些依赖其他插件、或者需要确保所有功能都已就绪的初始化操作时，这个钩子非常有用。
+⚠️ 警告: 请谨慎使用 on_plugin_loaded。滥用它很容易导致插件之间产生不必要的强耦合，使得代码难以维护和理解。只有在你确实没有其他更好的办法时，才应该考虑使用它。,如果可能的话，尽量通过事件系统等更优雅的方式来实现你的需求。
+
+
+
+🚀 快速开始：创建你的第一个全功能插件
+欢迎来到 MoFox_Bot 插件开发的世界！本指南将带你从零开始，创建一个包含 Prompt、Action、Command、Tool 和 Event Handler 五大核心组件的 hello_world 插件。
+
+通过这个过程，你将掌握插件系统的基本结构和开发流程。
+
+📂 步骤一：创建插件基础结构
+首先，我们需要为插件创建一个家。
+
+1. 创建插件目录
+在项目根目录的 plugins/ 文件夹下，创建一个新的目录，命名为 hello_world_plugin。
+
+2. 创建元数据文件 __init__.py
+每个插件都需要一个 __init__.py 文件来定义其元数据。这取代了旧的 _manifest.json 系统。在 hello_world_plugin 目录下创建 __init__.py 文件，并填入以下内容：
+
+from src.plugin_system import PluginMetadata
+ 
+# 定义插件元数据
+metadata = PluginMetadata(
+    name="Hello World 插件",
+    description="一个包含四大核心组件的入门示例插件。",
+    usage="这是一个示例插件，展示了如何使用Action、Command、Tool和Event Handler。",
+    author="你的名字",
+    version="1.0.1",
+)
+这个文件告诉 MoFox_Bot 你的插件叫什么、功能是什么以及如何使用它。
+
+3. 创建主文件 plugin.py
+这是插件的灵魂所在。在 hello_world_plugin 目录下创建 plugin.py 文件。我们先写一个最基础的框架：
+
+from typing import List, Tuple, Type
+from src.plugin_system import (
+    BasePlugin,
+    register_plugin,
+    ComponentInfo,
+    PermissionNodeField,
+)
+
+@register_plugin
+class HelloWorldPlugin(BasePlugin):
+    """一个包含四大核心组件的入门示例插件。"""
+ 
+    # --- 插件基础信息 ---
+    # 插件名称，必须与插件目录名一致
+    plugin_name = "hello_world_plugin"
+    # 默认是否启用插件
+    enable_plugin = True
+    # 插件依赖
+    dependencies = []
+    # Python包依赖
+    python_dependencies = []
+    # 配置文件名称
+    config_file_name = "config.toml"
+    # 配置文件结构定义
+    config_schema = {}
+
+    # --- 权限节点定义 ---
+    permission_nodes = [
+        PermissionNodeField(
+            node_name="can_say_hello",
+            description="允许用户使用 /hello 命令。"
+        ),
+    ]
+ 
+    def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:
+        """注册插件的所有功能组件。"""
+        return []
+到这里，你的插件已经可以被系统加载了，虽然它现在还什么都做不了。
+
+🛠️ 步骤二：逐一添加五大组件
+现在，让我们开始为插件添加真正的功能。我们将在 plugin.py 文件中添加代码。
+
+1. 添加 Event Handler (事件处理器)
+功能：我们想在机器人启动时，在控制台打印一条消息，证明插件已成功加载。
+
+将以下代码添加到 plugin.py 的顶部：
+
+# (放在 import 语句下方)
+from src.plugin_system import BaseEventHandler, EventType
+from src.plugin_system.base.base_event import HandlerResult
+from src.common.logger import get_logger
+
+# ... (其他 import)
+
+logger = get_logger("hello_world_plugin")
+
+class StartupMessageHandler(BaseEventHandler):
+    """启动时打印消息的事件处理器。"""
+    handler_name = "hello_world_startup_handler"
+    handler_description = "在机器人启动时打印一条日志。"
+    init_subscribe = [EventType.ON_START]  # 订阅启动事件
+
+    async def execute(self, params: dict) -> HandlerResult:
+        logger.info("🎉 Hello World 插件已启动，准备就绪！")
+        return HandlerResult(success=True, continue_process=True)
+BaseEventHandler: 所有事件处理器的父类。
+init_subscribe: 告诉系统我们关心哪个事件，这里是 EventType.ON_START (启动事件)。
+execute: 事件发生时，这里的代码会被执行。
+💡 日志记录小贴士
+
+我们推荐使用 logger = get_logger("...") 的方式来获取日志记录器。
+
+参数: get_logger 的参数是日志记录器的名字，它会显示在控制台的日志输出中。
+命名: 你可以为它指定任何名字，但我们强烈建议使用插件的名称 (例如 "hello_world_plugin")。这样做的好处是，当你在查看日志时，可以非常清晰地知道这条日志信息是由哪个插件打印的，极大地提高了调试效率。
+用法: logger.info() 的效果与 logging.info() 类似，但通过我们自定义的 logger，系统可以更好地控制日志的格式和输出。
+2. 添加 Tool (工具)
+功能：创建一个简单的工具，可以提供一些固定的系统信息。这个工具本身不被调用，仅用于展示结构。
+
+将以下代码添加到 StartupMessageHandler 类的下方：
+
+from src.plugin_system import BaseTool, ToolParamType
+from typing import Dict, Any
+
+# ... (其他类定义)
+
+class GetSystemInfoTool(BaseTool):
+    """一个提供系统信息的示例工具。"""
+    name = "get_system_info"
+    description = "获取当前系统的模拟版本和状态信息。"
+    available_for_llm = True  # 允许被 LLM 发现和使用
+    parameters = []  # 这个工具不需要参数
+
+    async def execute(self, function_args: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "content": "系统版本: 1.0.1, 状态: 运行正常"
+        }
+BaseTool: 所有工具的父类。
+name, description, parameters: 这三者定义了工具的“签名”，LLM 会根据这些信息来决定是否以及如何使用它。
+3. 添加 Command (命令)
+功能：让用户可以通过输入 /hello 来获得一句问候。
+
+这里我们使用更现代的 PlusCommand。将以下代码添加到 GetSystemInfoTool 类的下方：
+
+from src.plugin_system import (
+    PlusCommand,
+    CommandArgs,
+    ChatType,
+    require_permission,
+)
+from typing import Tuple, Optional
+
+# ... (其他类定义)
+
+class HelloCommand(PlusCommand):
+    """一个简单的 /hello 命令。"""
+    command_name = "hello"
+    command_description = "向机器人发送一个简单的问候。"
+    command_aliases = ["hi", "你好"]  # 命令的别名
+    chat_type_allow = ChatType.ALL  # 在群聊和私聊中都可用
+
+    # --- 可用范围控制 ---
+    # chat_type_allow 控制命令在哪些类型的聊天中可用。
+    # - ChatType.ALL: 在群聊和私聊中都可用。
+    # - ChatType.GROUP: 仅在群聊中可用。
+    # - ChatType.PRIVATE: 仅在私聊中可用。
+    chat_type_allow = ChatType.ALL
+
+    @require_permission("hello_world_plugin.can_say_hello", "你没有权限说 hello！") # 使用权限装饰器,检测触发命令的用户有没有hello_world_plugin.can_say_hello权限
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        await self.send_text("Hello, World! 我是一个由 MoFox_Bot 驱动的插件。")
+        return True, "成功发送问候", True
+PlusCommand: 推荐使用的命令基类，无需编写正则表达式。
+command_name, command_aliases: 定义了用户如何触发这个命令。
+execute: 当命令被触发时，这里的代码会被执行。self.send_text 是一个方便的内置方法，用于发送文本消息。
+4. 添加 Action (动作)
+功能：让机器人有时会“自发地”发送一个随机表情，增加一点趣味性。
+
+将以下代码添加到 HelloCommand 类的下方：
+
+from src.plugin_system import BaseAction, ActionActivationType
+import random
+
+# ... (其他类定义)
+
+class RandomEmojiAction(BaseAction):
+    """一个随机发送表情的动作。"""
+    action_name = "random_emoji"
+    action_description = "随机发送一个表情符号，增加聊天的趣味性。"
+    
+    # --- 激活控制 (第一层决策) ---
+    activation_type = ActionActivationType.RANDOM
+    random_activation_probability = 0.1  # 10% 的概率被激活
+
+    # --- 使用条件 (第二层决策) ---
+    action_require = ["当对话气氛轻松时", "可以用来回应简单的情感表达"]
+    associated_types = ["text"]
+
+    async def execute(self) -> Tuple[bool, str]:
+        emojis = ["😊", "😂", "👍", "🎉", "🤔", "🤖"]
+        await self.send_text(random.choice(emojis))
+        return True, "成功发送了一个随机表情"
+BaseAction: 所有动作的父类。
+activation_type: 定义了动作如何进入“备选池”。这里使用 RANDOM，意味着它有一定概率被考虑。
+action_require: 告诉 LLM 在什么情境下选择使用这个动作。
+execute: 当 LLM 最终决定使用这个动作时，这里的代码会被执行。
+5. 添加 Prompt (提示词注入)
+功能：我们希望机器人在回复时，能根据当前的情绪状态，微调自己的语气。
+
+将以下代码添加到 RandomEmojiAction 类的下方：
+
+from src.plugin_system import BasePrompt
+from src.chat.utils.prompt_params import PromptParameters
+
+# ... (其他类定义)
+
+class MoodBasedPrompt(BasePrompt):
+    """根据机器人当前情绪调整语气的Prompt组件。"""
+    prompt_name = "mood_based_prompt"
+    prompt_description = "根据当前心情微调回复语气。"
+    
+    # 注入到核心的风格Prompt中
+    injection_point = ["s4u_style_prompt", "normal_style_prompt"]
+
+    async def execute(self) -> str:
+        # 在实际应用中，我们会从一个情绪管理器中获取当前情绪
+        # 这里为了简化，我们随机模拟一个情绪
+        moods = ["开心", "平静", "有点小激动"]
+        current_mood = random.choice(moods)
+        
+        return f"请注意：你当前的心情是'{current_mood}'，请在回复中 subtly (巧妙地) 体现出这种感觉。"
+BasePrompt: 所有提示词注入组件的父类。
+injection_point: 定义了这段文本要注入到哪个核心 Prompt 中。s4u_style_prompt 是负责定义机器人风格的核心 Prompt 之一。
+execute: 返回的字符串会被拼接到目标 Prompt 的最前面，从而影响最终的生成风格。
+想要了解更多关于 Prompt 组件的知识，请阅读《Prompt组件开发指南》。
+✅ 步骤三：注册所有组件
+现在我们已经定义好了五个组件，最后一步是告诉插件主类它们的存在。
+
+回到 HelloWorldPlugin 类，修改 get_plugin_components 方法，将所有组件注册进去。
+
+# (修改 HelloWorldPlugin 类)
+
+# ... (所有组件的类定义) ...
+
+@register_plugin
+class HelloWorldPlugin(BasePlugin):
+    """一个包含四大核心组件的入门示例插件。"""
+
+    # --- 插件基础信息 (保持不变) ---
+    plugin_name = "hello_world_plugin"
+    enable_plugin = True
+    dependencies = []
+    python_dependencies = []
+    config_file_name = "config.toml"
+    config_schema = {}
+
+    def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:
+        """注册插件的所有功能组件。"""
+        return [
+            (StartupMessageHandler.get_handler_info(), StartupMessageHandler),
+            (GetSystemInfoTool.get_tool_info(), GetSystemInfoTool),
+            (HelloCommand.get_command_info(), HelloCommand),
+            (RandomEmojiAction.get_action_info(), RandomEmojiAction),
+            (MoodBasedPrompt.get_prompt_info(), MoodBasedPrompt),
+        ]
+每个组件都有一个 get_..._info() 的类方法，用于获取其元信息。
+我们将每个组件的元信息和类本身作为一个元组，添加到返回的列表中。
+🎉 恭喜！
+你已经成功创建了一个功能完整的 hello_world 插件！重启你的 MoFox_Bot，你将会：
+
+在控制台看到 "🎉 Hello World 插件已启动，准备就绪！" 的消息。
+可以向机器人发送 /hello 或 !你好，并收到回复。
+在与机器人聊天时，偶尔会收到一个随机的表情符号。
+虽然 get_system_info 工具不会被直接触发，但它已经作为一项能力被注册到了系统中。
+机器人的回复风格会根据模拟的“心情”产生微小的变化，这正是 Prompt 组件在起作用！
+现在，你已经掌握了插件开发的基础。可以尝试修改这个插件，或者创建属于你自己的全新插件了！
+
+🚀 进阶：让插件更灵活
+硬编码的文本不是一个好习惯。让我们学习如何使用配置文件，让你的插件可以由用户自由配置。
+
+1. 定义配置 Schema
+我们通过在插件主类中定义 config_schema 属性，来声明插件所需的配置项。系统会基于这个 schema 自动处理配置的生成和加载。
+
+配置工作流
+插件配置遵循一个清晰的生命周期：
+
+定义 Schema: 开发者在插件代码中通过 config_schema 来定义配置的结构、类型和默认值。这是配置的“蓝图”。
+
+自动生成配置文件: 当 MoFox_Bot 首次加载插件时，它会读取 config_schema 并在 config/plugins/<plugin_name>/config.toml 路径下生成一个默认的配置文件。
+
+用户自定义配置: 用户应仅修改 config/plugins/ 目录下的 config.toml 文件来覆盖默认值。插件代码永远不应修改此文件。这确保了用户配置的持久性和唯一性。
+
+运行时加载配置: 在插件内部，通过调用 self.get_config() 方法来安全地读取和验证用户配置。此方法返回一个 Pydantic 模型实例，确保了数据的类型安全和完整性。如果用户配置不符合 config_schema 定义的格式，系统会记录错误并加载默认值，保证插件的稳定运行。
+
+🚨 重要：你不需要手动创建 config.toml 文件！系统会根据你的定义自动生成它。
+
+修改 plugin.py 中的 HelloWorldPlugin 类：
+
+# (在 plugin.py 顶部)
+from src.plugin_system import ConfigField # 别忘了导入 ConfigField
+
+# ... (其他代码)
+
+@register_plugin
+class HelloWorldPlugin(BasePlugin):
+    # ... (其他基础信息)
+    
+    # --- 配置文件定义 ---
+    config_schema = {
+        "greeting": {
+            "message": ConfigField(
+                type=str,
+                default="这是来自配置文件的问候！👋",
+                description="HelloCommand 使用的问候语。"
+            ),
+        },
+    }
+
+    def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:
+        # ... (保持不变)
+config_schema 是一个字典，定义了配置的结构。
+ConfigField 用于详细定义每个配置项的类型、默认值和描述。
+2. 在代码中使用配置
+定义好 Schema 后，我们就可以在组件中通过 self.get_config() 方法来读取配置值了。
+
+修改 HelloCommand 的 execute 方法：
+
+class HelloCommand(PlusCommand):
+    # ... (基础信息不变)
+
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        # 从配置文件读取问候语，如果找不到则使用默认值
+        greeting = str(self.get_config("greeting.message", "Hello, World! 我是一个由 MoFox_Bot 驱动的插件。"))
+        await self.send_text(greeting)
+        return True, "成功发送问候", True
+self.get_config("greeting.message", ...): 第一个参数是配置的路径（[greeting] 下的 message），第二个是找不到配置时的默认值。
+我们用 str() 确保最终得到的是一个字符串，以保证类型安全。
+3. 它是如何工作的？
+首次启动: 当 MoFox_Bot 第一次加载你的插件时，它会检查 config_schema。
+生成文件: 它会在 config/plugins/hello_world_plugin/ 目录下自动生成一个 config.toml 文件，内容如下：
+# hello_world_plugin - 自动生成的配置文件
+# 一个包含四大核心组件和配置功能的入门示例插件。
+
+# greeting
+[greeting]
+
+# HelloCommand 使用的问候语。
+message = "这是来自配置文件的问候！👋"
+用户修改: 用户可以随时修改这个 config.toml 文件中的 message 值。
+读取配置: 下次 /hello 命令被触发时，get_config 就会读取用户修改后的新值。
+现在，你的插件不仅功能完整，而且变得更加灵活和强大了！
+
+4. 终极技巧：组件开关与配置版本
+我们还可以做得更专业。通过配置文件，我们不仅可以改变文本，甚至可以控制插件的哪些部分需要加载！
+
+a. 添加组件开关和版本号
+让我们再次升级 config_schema，加入组件开关和版本号：
+
+@register_plugin
+class HelloWorldPlugin(BasePlugin):
+    # ... (基础信息)
+    
+    config_schema = {
+        "meta": {
+            "config_version": ConfigField(
+                type=int,
+                default=1,
+                description="配置文件版本，请勿手动修改。"
+            ),
+        },
+        "greeting": {
+            "message": ConfigField(
+                type=str,
+                default="这是来自配置文件的问候！👋",
+                description="HelloCommand 使用的问候语。"
+            ),
+        },
+        "components": {
+            "hello_command_enabled": ConfigField(
+                type=bool,
+                default=True,
+                description="是否启用 /hello 命令。"
+            ),
+            "random_emoji_action_enabled": ConfigField(
+                type=bool,
+                default=True,
+                description="是否启用随机表情动作。"
+            ),
+        }
+    }
+    # ...
+[meta]: 我们添加了一个 meta 表，用于存放元信息，比如 config_version。这对于未来管理插件配置的更新非常有帮助。
+[components]: 在这里，我们为 HelloCommand 和 RandomEmojiAction 分别添加了一个布尔类型的开关。
+b. 动态加载组件
+最后，也是最关键的一步，修改 get_plugin_components 方法，让它在加载组件前先读取配置：
+
+    def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:
+        """根据配置文件动态注册插件的功能组件。"""
+        components: List[Tuple[ComponentInfo, Type]] = []
+
+        # 总是注册这两个基础组件
+        components.append((StartupMessageHandler.get_handler_info(), StartupMessageHandler))
+        components.append((GetSystemInfoTool.get_tool_info(), GetSystemInfoTool))
+
+        # 根据配置决定是否注册 HelloCommand
+        if self.get_config("components.hello_command_enabled", True):
+            components.append((HelloCommand.get_command_info(), HelloCommand))
+        
+        # 根据配置决定是否注册 RandomEmojiAction
+        if self.get_config("components.random_emoji_action_enabled", True):
+            components.append((RandomEmojiAction.get_action_info(), RandomEmojiAction))
+
+        return components
+现在，用户可以直接在 config.toml 文件中将 hello_command_enabled 设置为 false，重启后 /hello 命令就会失效，而插件的其他部分（如随机表情）仍然可以正常工作。
+
+这为用户提供了极大的灵活性，也让你的插件变得更加健壮和专业。
+
+
+
+🧬 插件元数据系统指南
+概述
+MoFox_Bot的插件系统采用了一种现代化的、基于代码的元数据管理方式，取代了原有的 _manifest.json 文件。现在，所有插件的元数据都通过一个 PluginMetadata 对象在代码中直接定义，提供了更好的类型安全性和开发体验。
+
+核心理念：元数据即代码
+我们将插件的元数据视为代码的一部分，这意味着：
+
+类型安全：元数据由一个 dataclass (PluginMetadata) 定义，享受Python的类型检查优势。
+动态生成：元数据可以在运行时动态生成或修改（尽管不常见）。
+易于维护：所有插件信息都集中在 __init__.py 文件中，一目了然。
+无需额外文件：不再需要在插件目录中维护一个单独的 _manifest.json 文件。
+从 _manifest.json 迁移
+对于仍在使用旧版 _manifest.json 的插件，我们提供了一个便捷的迁移脚本，可以自动将其转换为新的 PluginMetadata 格式。
+
+使用方法
+定位脚本: 该脚本位于项目根目录下的 scripts/convert_manifest.py。
+
+准备插件: 将你需要转换的旧版插件（必须包含 _manifest.json 文件）完整地放入 scripts/pending_plugins/ 目录下。如果该目录不存在，脚本首次运行时会自动创建。
+
+运行脚本: 直接在你的IDE或终端中运行 convert_manifest.py 脚本。
+
+python scripts/convert_manifest.py
+获取结果: 转换成功后，新的、符合现代化元数据标准的插件目录将出现在 scripts/completed_plugins/ 目录下。原有的 _manifest.json 会被移除，并自动生成包含 PluginMetadata 的 __init__.py 文件。
+
+完成迁移: 将 completed_plugins 目录下的插件移动到正式插件目录中即可。
+
+PluginMetadata 类详解
+PluginMetadata 是一个 dataclass，包含了定义一个插件所需的所有信息。它在 src.plugin_system.base.plugin_metadata 中定义。
+
+如何定义元数据
+在你的插件目录下，创建一个 __init__.py 文件，并实例化一个 PluginMetadata 对象，赋值给名为 metadata 的变量。
+
+示例 (my_awesome_plugin/__init__.py):
+
+from src.plugin_system import PluginMetadata
+
+# 导入你的插件主类
+from .plugin import MyAwesomePlugin
+
+# 定义插件元数据
+metadata = PluginMetadata(
+    name="我的超棒插件",
+    description="这个插件能做一些非常厉害的事情。",
+    usage="""
+    如何使用我的插件：
+    1. 发送 `/awesome_command` 来触发酷炫功能。
+    2. 等待魔法发生！
+    """,
+    author="开发者姓名",
+    version="2.0.0",
+    license="MIT",
+    repository_url="https://github.com/your/repo",
+    keywords=["示例", "酷炫", "元数据"],
+    categories=["工具", "娱乐"]
+)
+字段说明
+必需字段
+这些字段是每个插件都必须提供的。
+
+name: str
+
+说明: 插件的显示名称，将展示给用户。
+示例: "我的超棒插件"
+description: str
+
+说明: 对插件功能的简短描述。
+示例: "这个插件能做一些非常厉害的事情。"
+usage: str
+
+说明: 详细的插件使用指南。支持多行文本。
+示例: "发送 /awesome_command 来触发酷炫功能。"
+推荐字段
+这些字段虽然是可选的，但强烈建议填写，以便提供更完整的插件信息。
+
+author: str
+
+说明: 插件作者的姓名或组织名。
+示例: "开发者姓名"
+version: str
+
+说明: 插件的版本号，建议遵循 语义化版本。
+默认值: "1.0.0"
+license: str | None
+
+说明: 插件的开源许可证。
+示例: "MIT"
+repository_url: str | None
+
+说明: 插件的源代码仓库地址。
+示例: "https://github.com/your/repo"
+keywords: list[str]
+
+说明: 一组描述插件的关键词，便于搜索和分类。
+示例: ["示例", "酷炫", "元数据"]
+categories: list[str]
+
+说明: 插件所属的分类。
+示例: ["工具", "娱乐"]
+python_dependencies: list[str | PythonDependency]
+
+说明: 插件所需的Python依赖列表。详细用法请参考插件Python依赖管理文档。
+示例: ["requests", "beautifulsoup4>=4.9.0"]
+dependencies: list[str]
+
+说明: 插件所需的其他插件依赖列表
+示例: ["some_other_library"]
+其他字段
+type: str | None
+
+说明: 插件的类型，可以是 "library" 或 "application"。
+默认值: None
+extra: dict[str, Any]
+
+说明: 一个用于存储任何其他自定义信息的字典。
+默认值: {}
+工作流程
+创建插件结构:
+
+my_awesome_plugin/
+├── __init__.py  # 元数据定义
+└── plugin.py    # 插件主逻辑
+定义元数据: 在 __init__.py 中创建并配置 metadata 变量。
+
+编写插件逻辑: 在 plugin.py 中，像往常一样编写你的 BasePlugin 子类。
+
+加载过程: 当MoFox_Bot启动时，插件管理器会自动扫描插件目录，找到 __init__.py 文件，读取 metadata 对象，并将其传递给你的插件实例。
+
+常见问题
+Q: 如果我不提供可选字段会怎么样？ A: 不会有任何问题。系统会使用字段的默认值。但是，提供更完整的信息有助于其他用户（以及未来的你）更好地理解和使用你的插件。
+
+
+插件Python依赖管理
+概述
+为了简化插件开发，插件系统提供了一套强大的Python包依赖自动管理机制。当你的插件被加载时，系统会：
+
+检查依赖: 自动分析插件所需的Python包是否已安装。
+版本验证: 确保已安装的包版本符合插件的要求。
+自动安装: 若依赖缺失，系统会自动尝试安装（此行为由全局配置控制）。
+提供反馈: 在出现问题时，提供详细的错误信息和日志，帮助快速定位问题。
+如何为插件配置依赖
+现在，你需要在插件的 __plugin_meta__ 中通过 python_dependencies 属性来声明依赖。
+
+方式1: 简单字符串列表 (适用于简单场景)
+这是最快捷的方式，适合定义简单的依赖。
+
+from src.plugin_system.base.plugin_metadata import PluginMetadata, PythonDependency
+from typing import List
+
+__plugin_meta__ = PluginMetadata(
+    name="My Simple Plugin",
+    # ... 其他元数据
+    python_dependencies=[
+        "requests",
+        "beautifulsoup4>=4.9.0",
+        "httpx[socks]"  # 支持 extras
+    ]
+)
+
+# @register_plugin
+# class MySimplePlugin(BasePlugin):
+#     ...
+方式2: 使用 PythonDependency 对象 (推荐)
+对于复杂的依赖场景，强烈推荐使用 PythonDependency 对象。它提供了更强的控制力和更清晰的定义，尤其是在包的 安装名 和 导入名 不一致时。
+
+from src.plugin_system.base.plugin_metadata import PluginMetadata, PythonDependency
+from typing import List
+
+__plugin_meta__ = PluginMetadata(
+    name="My Advanced Plugin",
+    # ... 其他元数据
+    python_dependencies=[
+        PythonDependency(
+            package_name="requests",
+            version=">=2.25.0",
+            description="一个强大的HTTP请求库",
+            optional=False
+        ),
+        PythonDependency(
+            package_name="bs4",  # 导入名是 bs4
+            install_name="beautifulsoup4",  # 安装名是 beautifulsoup4
+            version=">=4.9.0",
+            description="强大的HTML和XML解析库",
+            optional=False
+        ),
+        PythonDependency(
+            package_name="httpx",
+            install_name="httpx[socks]",  # 安装时使用的名称
+            description="支持SOCKS代理的异步HTTP客户端",
+            optional=True  # 标记为可选依赖
+        )
+    ]
+)
+
+# @register_plugin
+# class MyAdvancedPlugin(BasePlugin):
+#     ...
+PythonDependency 参数详解
+package_name (str): 包的 导入名，用于 import 检查。
+version (str, optional): 版本要求，遵循PEP 440格式 (例如 ">_1.0.0", "==2.1.3")。
+install_name (str, optional): pip 安装时使用的名称。如果未提供，则默认使用 package_name。
+description (str, optional): 依赖的描述，会显示在日志和错误信息中，提高可读性。
+optional (bool): 是否为可选依赖。如果为 True，即使这个依赖检查失败，也不会阻止插件的加载，仅会记录一条警告。
+工作流程
+依赖管理系统遵循以下步骤：
+
+插件初始化: 当插件被加载时，系统会读取 __plugin_meta__ 中的 python_dependencies 属性。
+依赖标准化: 如果你使用了简单的字符串列表，系统会将其内部转换为 PythonDependency 对象。
+检查与验证: 系统会尝试导入每个依赖包，并验证其版本是否满足要求。
+智能别名解析: 如果通过 package_name 直接导入失败 (例如 import beautifulsoup4 失败)，系统会查询一个内置的别名映射表 (例如 beautifulsoup4 -> bs4)，并尝试使用别名再次导入。
+自动安装: 如果依赖缺失且系统开启了自动安装功能，系统会调用 pip 来安装它。
+错误处理: 任何失败的步骤都会被详细记录，并根据依赖是否为可选来决定是否中止插件加载。
+智能别名解析 (Smart Alias Resolution)
+它解决了什么问题？
+Python生态中，一些包的 安装名 与 导入名 并不相同，这常常让开发者感到困惑。例如：
+
+安装: pip install beautifulsoup4 -> 导入: import bs4
+安装: pip install Pillow -> 导入: import PIL
+安装: pip install scikit-learn -> 导入: import sklearn
+为了简化开发，依赖管理系统内置了智能别名解析机制。
+
+它是如何工作的？
+当系统通过包名直接导入失败时，它会自动：
+
+查询一个内置的、包含数百个常见包的别名映射表。
+如果在表中找到了对应的导入名，就使用该别名再次尝试导入。
+如果别名导入成功，依赖检查通过。
+这个过程是全自动的，旨在处理绝大多数常见情况，让你在使用简单字符串格式定义依赖时也无需担心这些恼人的命名差异。
+
+注意事项
+最佳实践: 尽管有智能别名解析，我们仍然 强烈推荐 使用 PythonDependency 对象来明确指定 package_name (导入名) 和 install_name (安装名)。这能确保最高的准确性和可读性。
+覆盖范围: 内置的别名表已涵盖大量常用库，但无法保证100%覆盖。如果遇到别名库未收录的包，请务必使用 PythonDependency 对象进行精确定义。
+日志输出示例
+一个成功的自动安装过程会产生类似以下的日志：
+
+[Plugin:web_search_tool] 开始自动安装Python依赖: ['asyncddgs', 'httpx[socks]']
+[Plugin:web_search_tool] 使用PyPI镜像源: https://pypi.tuna.tsinghua.edu.cn/simple
+[Plugin:web_search_tool] ✅ 成功安装: asyncddgs
+[Plugin:web_search_tool] ✅ 成功安装: httpx[socks]
+[Plugin:web_search_tool] 🎉 所有依赖安装完成
+[Plugin:web_search_tool] Python依赖检查通过
+错误处理
+当依赖检查失败时，系统会：
+
+记录详细的错误信息到日志文件。
+如果是 可选依赖 缺失，仅记录警告，插件会继续加载。
+如果是 必需依赖 缺失且自动安装失败，将阻止插件加载，并给出清晰的错误提示。
+最佳实践
+首选 PythonDependency 对象: 这是最可靠、最明确的方式，能从根本上避免命名混淆。
+善用智能别名解析: 对于 beautifulsoup4、Pillow 这类常见包，可以直接在字符串列表里使用安装名，系统会自动解析。
+合理设置可选依赖: 将非核心功能的依赖标记为 optional=True，避免因次要功能的问题导致整个插件无法加载。
+明确版本要求: 为关键依赖指定清晰的版本范围，确保兼容性，避免潜在的冲突。
+添加描述信息: 好的描述能让其他开发者（以及未来的你）快速理解每个依赖的用途。
+充分测试: 在不同环境中测试你的插件，确保依赖配置无误。
+安全考虑
+自动安装功能由系统管理员在全局配置中统一管理，插件开发者无法覆盖此设置。
+所有安装操作都有详细的日志记录，便于审计和追踪。
+安装过程有超时限制，以避免因网络问题导致系统长时间挂起。
+故障排除
+依赖安装失败
+检查网络连接: 确保你的设备可以访问外部网络，特别是PyPI源。
+查看日志: 检查详细的错误日志，通常日志中会包含 pip 的原始错误输出，这是定位问题的关键。
+手动安装: 尝试在你的环境中手动运行 pip install <package_name>，看看是否能复现问题。这有助于判断是环境问题还是依赖定义问题。
+导入错误
+确认包名与导入名: 检查你的 package_name 是否真的是导入时使用的名称。如果不是，请使用 install_name 来指定安装名。
+利用自动别名解析: 对于常见库，系统会自动尝试解析别名。如果你的库比较冷门且名称不一致，请务必使用 PythonDependency 对象。
+检查可选依赖配置: 确认 optional=True 是否被正确设置。
+
+
+⚙️ 插件配置完整指南 (v2.0)
+欢迎来到新一代插件配置系统！本文档将指导你如何为插件定义配置、理解其自动化的生命周期，并最终在代码中优雅地访问它们。
+
+核心理念：Schema 即真理
+与旧系统不同，新的配置系统遵循一个核心原则：以代码中定义的 config_schema 为唯一且绝对的真实来源 (Schema as the Source of Truth)。
+
+这意味着：
+
+你永远不需要手动创建或修改配置文件。
+不再需要手动管理 config_version。
+配置文件会自动生成、自动同步、自动备份。
+你的任务只有一个：在代码中清晰地定义你的配置结构 (schema)，剩下的交给系统。
+
+定义插件配置
+在你继承自 PluginBase 的主插件类中，通过定义以下几个关键的类属性来完成配置：
+
+config_file_name: 配置文件名，例如 "config.toml"。
+config_section_descriptions: (可选) 为配置文件的每个 [section] 添加注释。
+config_schema: 核心部分，一个嵌套字典，用于定义每个配置项的具体结构。
+每个配置项都通过一个 ConfigField 对象来定义。
+
+ConfigField 详解
+from src.plugin_system.base.config_types import ConfigField
+
+# ConfigField 定义
+@dataclass
+class ConfigField:
+    type: type          # 字段类型 (str, int, float, bool, list)
+    default: Any        # 默认值
+    description: str    # 字段描述 (将作为注释生成到配置文件中)
+    example: str | None = None       # 示例值 (可选)
+    required: bool = False              # 是否必需 (可选, 主要用于文档提示)
+    choices: list[Any] | None = field(default_factory=list) # 可选值列表 (可选)
+智能的配置生命周期
+当你定义好 config_schema 后，系统会在插件加载时自动处理配置文件的整个生命周期。所有插件的配置文件都会被统一生成和管理在项目的 config/plugins/你的插件名/ 目录下。
+
+全自动工作流程
+下面的流程图展示了当你启动程序时，配置系统是如何工作的：
+
+配置同步过程
+
+不存在
+
+存在
+
+一致
+
+不一致
+
+插件加载
+
+检查用户配置文件
+/config/plugins/plugin_name/config.toml
+
+文件存在?
+
+根据 Schema 生成默认配置
+
+读取用户配置
+
+配置结构与 Schema 一致?
+
+直接加载配置
+
+执行配置同步
+
+1. 备份旧配置文件
+2. 以 Schema 为基准合并配置
+3. 将合并后的新配置覆盖保存
+加载同步后的配置
+
+加载完成
+
+配置同步机制详解
+这是新系统的核心。当代码中的 config_schema 发生变化时，系统会自动同步：
+
+补全缺失项: 如果你的新 schema 增加了一个字段，用户的旧配置文件里没有，系统会自动将该字段及其默认值补充进去。
+移除废弃项: 如果你从 schema 中删除了一个字段，系统会在用户的配置文件中也将其移除，并打印一条警告日志。
+自动备份: 在执行任何覆盖写操作之前，系统都会在配置所在目录的 backup/ 子文件夹下，创建一个带时间戳的备份文件。你再也不用担心用户的配置会意外丢失。
+配置访问
+在你的组件（如 BaseAction, PlusCommand 等）中，可以通过内置的 get_config() 方法安全地访问配置项。
+
+该方法接受一个点分割的字符串来定位配置项，格式为 "section.key"。
+
+# 在一个Command组件中访问配置
+class MyCommand(PlusCommand):
+    ...
+    async def execute(self, args: CommandArgs):
+        # 获取某个配置项，如果不存在，则使用默认值 30
+        min_value = self.get_config("my_section.min_value", 30)
+
+        # 获取一个列表
+        user_whitelist = self.get_config("permissions.allowed_users", [])
+
+        # 访问一个不存在的配置项，会返回提供的默认值 None
+        non_existent = self.get_config("a.b.c", None)
+完整示例：PluginManagementPlugin
+让我们以 plugin_management 插件为例，看看如何定义它的配置。
+
+plugin.py (配置结构)
+
+# src/plugins/built_in/plugin_management/plugin.py
+from src.plugin_system import BasePlugin, register_plugin, ConfigField
+
+@register_plugin
+class PluginManagementPlugin(BasePlugin):
+    plugin_name = "plugin_management_plugin"
+    config_file_name = "config.toml"
+
+    config_section_descriptions = {
+        "plugin": "插件基础配置"
+    }
+
+    config_schema = {
+        "plugin": {
+            "enabled": ConfigField(type=bool, default=True, description="是否启用插件的管理功能"),
+        }
+    }
+    # ... 插件其他代码 ...
+3. 自动生成的 config.toml
+
+当 plugin_management_plugin 首次加载时，系统会在 config/plugins/plugin_management_plugin/ 目录下自动创建以下 config.toml 文件：
+
+# plugin_management_plugin - 自动生成的配置文件
+# 通过系统API管理插件和组件的生命周期...
+
+# 插件基础配置
+[plugin]
+
+# 是否启用插件的管理功能
+enabled = true
+最佳实践
+🔥 绝不手动创建配置文件: 任何时候都不要手动创建 config.toml 文件！必须通过在 plugin.py 中定义 config_schema 让系统自动生成。
+Schema 优先: 所有配置项都必须在 config_schema 中声明，包括类型、默认值和描述。它是配置的唯一真实来源。
+清晰的描述: 为每个 ConfigField 和 config_section_descriptions 编写清晰、准确的描述。这会直接成为配置文件的注释，极大地帮助用户理解如何使用你的插件。
+合理的默认值: 确保你的插件在默认配置下就能正常运行，或者处于一个安全、禁用的状态。
+中央化配置: 插件的配置文件由系统统一管理在 config/plugins/你的插件名/ 目录下。请勿在其他地方创建配置文件。
+gitignore: 将 config/ 目录加入你的 .gitignore 文件，以避免将个人配置或敏感信息提交到版本库中。
+
+
+
+
+
+插件权限系统使用指南
+为了简化插件开发并确保权限管理的一致性，我们引入了一套声明式的权限节点注册机制。开发者应通过在插件类中定义一个 permission_nodes 属性来声明插件所需的所有权限。
+
+1. 注册权限节点
+这是为你的插件定义权限的第一步，也是最重要的一步。
+
+核心概念 PermissionNodeField
+PermissionNodeField 是一个数据类，用于定义单个权限节点的元数据。它的结构如下：
+
+node_name (str): 权限节点的名称，例如 "manage" 或 "view"。这个名称是相对于插件的，系统会自动为其添加 plugins.<plugin_name>. 前缀。
+description (str): 权限的详细描述，用于在管理界面中向管理员说明该权限的用途。
+如何使用
+你需要在你的插件类中，添加一个 permission_nodes 属性，它是一个 PermissionNodeField 对象的列表。
+
+示例
+假设我们有一个名为 MyAwesomePlugin 的插件，它需要两个权限：一个用于管理，一个用于查看。
+
+from src.plugin_system import BasePlugin, register_plugin
+from src.plugin_system.base.component_types import PermissionNodeField
+
+@register_plugin
+class MyAwesomePlugin(BasePlugin):
+    plugin_name: str = "MyAwesomePlugin"
+    
+    permission_nodes: list[PermissionNodeField] = [
+        PermissionNodeField(
+            node_name="manage",
+            description="允许用户管理 MyAwesomePlugin 的各项功能。"
+        ),
+        PermissionNodeField(
+            node_name="view",
+            description="允许用户查看 MyAwesomePlugin 的状态信息。"
+        ),
+    ]
+
+    # ... 插件的其他代码 ...
+自动注册
+当插件被加载时，系统会自动检查 permission_nodes 属性。如果该属性不为空，它会遍历列表中的每一个 PermissionNodeField 对象，并为其注册权限节点。
+
+注册时，权限节点的完整名称会自动规范化为 plugins.<plugin_name>.<node_name> 的格式。例如，在上面的示例中，注册的两个权限节点分别是：
+
+plugins.MyAwesomePlugin.manage
+plugins.MyAwesomePlugin.view
+2. 在代码中检查权限
+声明权限后，你需要在代码的相应位置检查用户是否拥有该权限。
+
+推荐方式：使用装饰器
+这是最简单、最直接的权限检查方式，推荐在命令处理函数上使用。
+
+from src.plugin_system.utils.permission_decorators import require_permission, require_master
+
+class MyCommand(BaseCommand):
+    @require_permission("plugins.MyAwesomePlugin.manage")
+    async def execute(self, message: Message, chat_stream: ChatStream, args: List[str]):
+        await send_message(chat_stream, "你有管理员权限！")
+    
+    @require_master("只有Master可以执行此操作")
+    async def master_only_function(self, message: Message, chat_stream: ChatStream):
+        await send_message(chat_stream, "Master专用功能")
+灵活方式：手动检查
+对于更复杂的权限逻辑，你可以使用 PermissionChecker 进行手动检查。
+
+from src.plugin_system.utils.permission_decorators import PermissionChecker
+
+class MyCommand(BaseCommand):
+    async def execute(self, message: Message, chat_stream: ChatStream, args: List[str]):
+        # 检查是否为Master用户
+        if PermissionChecker.is_master(chat_stream):
+            await send_message(chat_stream, "Master用户可以执行所有操作")
+            return
+        
+        # 检查特定权限
+        if PermissionChecker.check_permission(chat_stream, "plugins.MyAwesomePlugin.view"):
+            await send_message(chat_stream, "你可以查看数据")
+        
+        # 使用 ensure_permission 自动发送权限不足消息
+        if await PermissionChecker.ensure_permission(chat_stream, "plugins.MyAwesomePlugin.manage"):
+            await send_message(chat_stream, "你可以管理此插件")
+高级方式：直接调用 API
+在某些特殊场景下，你可能需要更底层的权限操作，可以直接调用 permission_api。
+
+from src.plugin_system.apis.permission_api import permission_api
+
+# 检查特定用户的权限
+has_permission = permission_api.check_permission("qq", "123456", "plugins.MyAwesomePlugin.manage")
+
+# 检查特定用户是否为Master
+is_master = permission_api.is_master("qq", "123456")
+
+# 获取用户的所有权限
+permissions = permission_api.get_user_permissions("qq", "123456")
+3. 最佳实践
+细粒度权限：为不同功能创建独立的权限节点，而不是用一个宽泛的 admin 权限。
+清晰描述：为每个权限节点提供清晰、准确的描述，方便管理员理解和授权。
+命名规范：遵循 plugins.<plugin_name>.<node_name> 的命名规范，保持一致性。
+安全第一：所有权限都默认为拒绝，需要管理员显式授权，这保证了系统的安全性。
+
+
+
+🎯 控制插件的可用范围
+在开发 MoFox_Bot 插件时，精确控制每个组件（尤其是命令）在何处生效是至关重要的。你可以决定一个命令是只能在群聊中使用，还是只能由私聊触发，或者两者皆可。
+
+这主要通过在组件类中设置 chat_type_allow 属性来实现。
+
+chat_type_allow 属性详解
+chat_type_allow 属性接收一个 ChatType 枚举值，该枚举定义了三种可用范围：
+
+ChatType.ALL: 通用 - 组件在群聊和私聊中都可用。
+ChatType.GROUP: 仅群聊 - 组件只能在群聊中被触发或激活。
+ChatType.PRIVATE: 仅私聊 - 组件只能在与机器人的私聊中被触发或激活。
+示例：创建一个仅限群聊的命令
+假设我们要创建一个 /roll 命令，用于在群聊中投骰子。这个命令在私聊中没有意义，所以我们希望禁用它。
+
+from src.plugin_system import PlusCommand, CommandArgs, ChatType
+from typing import Tuple, Optional
+import random
+
+class RollDiceCommand(PlusCommand):
+    """一个仅在群聊中可用的投骰子命令。"""
+    
+    command_name = "roll"
+    command_description = "投一个 1 到 100 之间的骰子。"
+    
+    # --- 关键设置 ---
+    # 将可用范围设置为仅群聊
+    chat_type_allow = ChatType.GROUP
+
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        # args.sender_name 包含了发送者的昵称
+        sender = args.sender_name or "一位冒险者"
+        result = random.randint(1, 100)
+        
+        # self.send_text 会在命令被触发的聊天窗口中回复消息
+        await self.send_text(f"🎲 {sender} 投出了 {result} 点！")
+        
+        return True, "成功投掷骰子", True
+工作原理:
+
+当用户在群聊中发送 /roll 时，RollDiceCommand 会被成功触发。
+如果用户在与机器人的私聊中发送 /roll，命令处理器会直接忽略它，因为它不满足 chat_type_allow = ChatType.GROUP 的条件。
+示例：创建一个仅限私聊的管理命令
+现在，我们来创建一个 /set_master 命令，用于设置机器人的管理员。这类敏感操作显然只应该在私聊中进行。
+
+from src.plugin_system import PlusCommand, CommandArgs, ChatType
+from typing import Tuple, Optional
+
+class SetMasterCommand(PlusCommand):
+    """一个仅在私聊中可用的管理员设置命令。"""
+    
+    command_name = "set_master"
+    command_description = "将某个用户设置为机器人管理员。"
+    
+    # --- 关键设置 ---
+    # 将可用范围设置为仅私聊
+    chat_type_allow = ChatType.PRIVATE
+
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        # 在真实场景中，这里会有权限校验和更复杂的逻辑
+        target_user = args.command_text # 获取命令后的文本，例如 /set_master 12345
+        
+        if not target_user:
+            await self.send_text("请指定要设置为管理员的用户 ID。")
+            return False, "缺少参数", True
+
+        # ... 执行设置管理员的逻辑 ...
+        
+        await self.send_text(f"✅ 已成功将用户 {target_user} 设置为管理员。")
+        
+        return True, "成功设置管理员", True
+工作原理:
+
+用户必须私聊机器人并发送 /set_master 12345 才能触发此命令。
+在任何群聊中发送此命令都将是无效的。
+何时使用 ChatType.ALL？
+ChatType.ALL 是最常见的设置，适用于那些在任何聊天场景下都有意义的功能。例如，一个查询天气、讲笑话或者像我们快速入门指南中的 /hello 命令，无论是在群聊中活跃气氛，还是在私聊中进行互动，都是合适的。
+
+class HelloCommand(PlusCommand):
+    """一个简单的问候命令，随处可用。"""
+    command_name = "hello"
+    command_description = "向机器人发送一个简单的问候。"
+    
+    # --- 关键设置 ---
+    # 在群聊和私聊中都可用
+    chat_type_allow = ChatType.ALL
+
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        await self.send_text("Hello, World!")
+        return True, "成功发送问候", True
+通过灵活运用 chat_type_allow，你可以设计出行为得体、功能边界清晰的强大插件。
+
+扩展到 Action (动作)
+chat_type_allow 属性不仅限于 Command，它同样可以应用于 Action，用于控制 Action 的触发环境。
+
+示例：创建一个只在群聊中发送的提醒 Action
+假设我们想让机器人在群聊中偶尔提醒大家“不要发送不和谐内容”。这个功能在私聊中显然是不需要的。
+
+from src.plugin_system import BaseAction, ActionActivationType, ChatType
+from typing import Tuple
+import random
+
+class GroupReminderAction(BaseAction):
+    """一个只在群聊中随机发送提醒的动作。"""
+    
+    action_name = "group_reminder"
+    action_description = "在群聊中随机发送一条和谐友善的提醒。"
+    
+    # --- 激活控制 ---
+    activation_type = ActionActivationType.RANDOM
+    random_activation_probability = 0.05  # 5% 的概率被激活
+    
+    # --- 关键设置 ---
+    # 将可用范围设置为仅群聊
+    chat_type_allow = ChatType.GROUP
+
+    async def execute(self) -> Tuple[bool, str]:
+        reminders = [
+            "提醒一下，请大家保持友善交流哦～",
+            "构建和谐社区，从你我做起！",
+            "今天也要元气满满地聊天呀！"
+        ]
+        await self.send_text(random.choice(reminders))
+        return True, "成功发送了一条群聊提醒"
+工作原理:
+
+这个 GroupReminderAction 只有在群聊消息的上下文中才可能被激活。
+在私聊中，无论对话如何进行，这个 Action 都不会进入备选池，因为它不满足 chat_type_allow = ChatType.GROUP 的条件。
+通过这种方式，你可以为不同场景设计出更具针对性的自动化行为，让你的机器人更加智能和得体。
+
+
+
+
+⚡ Chatter 组件详解
+📖 什么是 Chatter
+Chatter 是 MoFox_Bot 中用于实现主动式对话（Proactive Chat）的智能组件。与被动响应用户指令的 Action 不同，Chatter 会持续分析对话流，并在满足特定条件时自主触发，让机器人能够发起互动、引导话题或在适当时机介入对话。
+
+Chatter 的特点
+主动触发：无需用户明确调用，能根据对话上下文自主执行。
+情境感知：通过分析完整的对话历史（StreamContext）来决定是否激活。
+专注对话流：每个 Chatter 实例都与一个特定的对话流（stream_id）绑定。
+高度灵活：可以与 ActionManager 结合，执行发送消息、调用工具等复杂操作。
+🎯 Chatter 组件的基本结构
+所有 Chatter 组件都必须继承自 BaseChatter 类，并实现其核心属性和方法。
+
+from src.plugin_system.base.base_chatter import BaseChatter
+from src.common.data_models.message_manager_data_model import StreamContext
+from src.plugin_system.base.component_types import ChatType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.chat.planner_actions.action_manager import ChatterActionManager
+
+class MyChatter(BaseChatter):
+    # Chatter 的唯一标识符
+    chatter_name: str = "my_chatter"
+    # Chatter 功能的简短描述
+    chatter_description: str = "这是一个示例 Chatter。"
+    # 允许运行的聊天类型（私聊、群聊）
+    chat_types: list[ChatType] = [ChatType.PRIVATE, ChatType.GROUP]
+
+    def __init__(self, stream_id: str, action_manager: "ChatterActionManager"):
+        super().__init__(stream_id, action_manager)
+        # 在这里可以进行一些初始化设置
+
+    async def execute(self, context: StreamContext) -> dict:
+        """
+        执行 Chatter 的核心逻辑。
+        """
+        # 分析 context，决定是否执行操作
+        print(f"Executing {self.chatter_name} for stream {self.stream_id}")
+        
+        # 返回执行结果
+        return   {
+            "success": true,
+            "stream_id": self.stream_id,
+            "plan_created": true,
+            "actions_count": 1,
+            "has_target_message": true,
+            "unread_messages_processed": 1
+        }
+核心属性详解
+chatter_name (str): Chatter 的唯一名称，用于在系统中注册和识别。
+chatter_description (str): 对 Chatter 功能的描述，帮助理解其用途。
+chat_types (list[ChatType]): 一个列表，定义了此 Chatter 可以在哪些类型的对话中运行（ChatType.PRIVATE 或 ChatType.GROUP）。
+🚀 execute 方法
+execute 是 Chatter 的核心，包含了所有的业务逻辑。它在每次对话更新时被调用。
+
+context: StreamContext: execute 方法接收一个 StreamContext 对象作为参数。该对象封装了当前对话流的所有信息，包括：
+
+历史消息记录
+参与者信息
+对话元数据
+更详细的信息请参考 src/common/data_models/message_manager_data_model.py。
+返回值 (dict): execute 方法必须返回一个字典，用于向上层报告其执行状态。一个结构良好的返回值对于调试和系统监控至关重要。
+
+成功时的返回值结构:
+
+{
+    "success": true,
+    "stream_id": self.stream_id,
+    "plan_created": true,
+    "actions_count": 1,
+    "has_target_message": true,
+    "unread_messages_processed": 1
+}
+失败时的返回值结构:
+
+{
+    "success": false,
+    "stream_id": self.stream_id,
+    "error_message": "...",
+    "executed_count": 0
+}
+success (bool): 标记执行是否成功。
+stream_id (str): 当前的流ID。
+error_message (str, optional): 如果执行失败，提供错误信息。
+其他字段可以根据 Chatter 的具体逻辑自定义，以提供更丰富的上下文信息。
+💡 完整示例：GreetingChatter
+下面是一个完整的示例，展示了如何创建一个在检测到问候语时触发的 Chatter。
+
+greeting_chatter.py
+
+from src.plugin_system.base.base_chatter import BaseChatter
+from src.common.data_models.message_manager_data_model import StreamContext
+from src.plugin_system.base.component_types import ChatType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.chat.planner_actions.action_manager import ChatterActionManager
+
+
+class GreetingChatter(BaseChatter):
+    chatter_name: str = "greeting_chatter"
+    chatter_description: str = "一个简单的示例 Chatter，用于响应问候语。"
+    chat_types: list[ChatType] = [ChatType.PRIVATE, ChatType.GROUP]
+
+    def __init__(self, stream_id: str, action_manager: "ChatterActionManager"):
+        super().__init__(stream_id, action_manager)
+        self.greeting_keywords = ["你好", "hello", "hi", "嗨"]
+
+    async def execute(self, context: StreamContext) -> dict:
+        """
+        如果检测到问候语，则执行此 Chatter。
+        """
+        last_message = context.get_last_message()
+        if not last_message or not last_message.text:
+            return {
+                "success": True,
+                "stream_id": self.stream_id,
+                "message": "Skipped: No text in last message"
+            }
+
+        if any(keyword in last_message.text for keyword in self.greeting_keywords):
+            # 在这里，您可以调用执行具体的操作
+            print(f"GreetingChatter executed for stream: {self.stream_id}")
+            return {
+                "success": True,
+                "stream_id": self.stream_id,
+                "plan_created": True,
+                "actions_count": 1, # 假设我们执行了一个动作
+                "message": "Greeting detected and action planned.",
+                "has_target_message": true,
+                "unread_messages_processed": 1
+            }
+
+        return {
+            "success": false,
+            "stream_id": self.stream_id,
+            "error_message": "...",
+            "executed_count": 0
+        }
+逻辑解释
+初始化: __init__ 方法中定义了一个问候语关键词列表 greeting_keywords。
+获取最新消息: execute 方法首先通过 context.get_last_message() 获取对话流中的最后一条消息。
+条件检查: 它检查消息是否存在且包含文本。
+关键词匹配: 使用 any() 和列表推导式，判断消息文本是否包含任何一个问候语关键词。
+执行与返回:
+如果匹配成功，它会打印一条日志并返回 executed 状态。在实际应用中，这里可以调用 self.action_manager 来发送回复。
+如果不匹配或消息无效，则返回 skipped 状态。
+🔧 Chatter 的内置属性和方法
+属性
+self.stream_id (str): 当前 Chatter 实例绑定的对话流 ID。
+self.action_manager (ChatterActionManager): 一个强大的管理器，允许 Chatter 执行各种操作，例如发送消息、调用工具等。
+类方法
+get_chatter_info() -> ChatterInfo: 一个类方法，它会自动从类属性（chatter_name, chatter_description 等）生成一个 ChatterInfo 对象，用于在系统中注册和展示 Chatter。
+📚 高级示例与进一步学习
+本文档中的 GreetingChatter 提供了一个 Chatter 组件的基础入门。对于更复杂、更贴近生产环境的用例，我们强烈建议您深入研究 AffinityChatter 的源代码。
+
+文件路径: src/plugins/built_in/affinity_flow_chatter/affinity_chatter.py
+通过分析 AffinityChatter，您可以学习到：
+
+如何与规划器（Planner）集成，动态生成动作。
+如何管理和更新 Chatter 的内部状态与统计数据。
+更复杂的错误处理和日志记录策略。
+贡献者
+
+
+⚡ Action 组件开发指南 (v2.0)
+📖 核心概念：什么是Action？
+Action 是 MoFox_Bot 插件系统中的核心组件之一，它赋予了 Bot 在常规回复之外执行主动行为的能力。
+
+不同于响应特定命令的函数，Action 由 MoFox_Bot 的决策系统根据当前的聊天情境、上下文乃至随机性，自主选择是否使用。这使得 Bot 的行为不再是简单的“一问一答”，而是充满了拟人化的、不可预测的、更贴近真人交流的动态交互。
+
+Action 的核心特点
+🧠 智能决策: Bot 根据复杂的内部逻辑，从众多可用的 Action 中“选择”最合适的一个来执行。
+🚀 动态激活: Action 可以根据特定条件（如关键词、随机概率、LLM判断）被动态地“激活”或“休眠”，减轻了决策系统的负担。
+🤖 高度拟人化: 通过引入随机性和情境感知，让 Bot 的行为更加自然、富有个性。
+🔧 功能可扩展: 开发者可以通过编写自定义 Action，无限扩展 Bot 的能力，例如发送图片、查询天气、控制智能家居等。
+🎯 现代激活机制 (v2.0 推荐)
+在新版插件系统中，我们强烈推荐通过重写 go_activate() 方法，来实现高度自定义和灵活的 Action 激活逻辑。
+
+核心方法：go_activate()
+go_activate() 是 Action 激活的唯一入口。插件加载时，系统会调用这个异步方法来判断该 Action 在当前情境下是否应该被“激活”（即加入到 Bot 的决策候选池中）。
+
+class MyAction(BaseAction):
+    # ... 其他定义 ...
+
+    async def go_activate(self, llm_judge_model: "LLMRequest | None" = None) -> bool:
+        """
+        自定义激活逻辑
+        返回 True 表示激活，False 则不激活。
+        """
+        # 在这里编写你的判断逻辑
+        return True
+为了简化开发，BaseAction 提供了一系列内置的异步工具函数，你可以在 go_activate() 中直接调用它们。
+
+激活工具函数详解
+1. _keyword_match() - 关键词匹配
+这是最常用的激活方式之一。它会自动获取当前消息内容，并检查是否包含指定的关键词。
+
+async def go_activate(self, llm_judge_model=None) -> bool:
+    # 当消息中包含 "你好" 或 "hello" (不区分大小写) 时激活
+    return await self._keyword_match(
+        keywords=["你好", "hello"],
+        case_sensitive=False  # case_sensitive 参数可选，默认为 False
+    )
+2. _random_activation() - 随机激活
+为你的 Bot 增加一点不可预测的“人性”。
+
+async def go_activate(self, llm_judge_model=None) -> bool:
+    # 有 30% 的概率激活这个 Action
+    return await self._random_activation(probability=0.3)
+3. _llm_judge_activation() - LLM 智能判断
+这是最强大、最智能的激活方式。它会利用一个（通常是较小的）LLM 模型来动态判断当前情境是否适合激活该 Action。
+
+你只需要提供核心的判断条件，方法会自动构建完整的 Prompt，并解析 LLM 的“是/否”回答。
+
+async def go_activate(self, llm_judge_model=None) -> bool:
+    # 利用 LLM 判断当前是否需要发送一个安慰的表情
+    return await self._llm_judge_activation(
+        judge_prompt="当用户在聊天中表现出悲伤、沮丧或失落的情绪时激活",
+        action_description="这是一个发送安慰表情的动作", # 可选，帮助 LLM 理解 Action 用途
+        action_require=["用户情绪低落"] # 可选，进一步提供场景说明
+    )
+组合使用
+go_activate() 的强大之处在于你可以自由组合这些工具函数，实现复杂的激活逻辑。
+
+async def go_activate(self, llm_judge_model=None) -> bool:
+    # 优先判断关键词
+    if await self._keyword_match(keywords=["发送表情"]):
+        return True
+    
+    # 如果没匹配到关键词，再进行 10% 的随机判断
+    if await self._random_activation(probability=0.1):
+        return True
+        
+    # 都不满足，则不激活
+    return False
+🚀 Action 的高级用法
+call_action() - 在 Action 中调用其他 Action
+你可以使用 call_action() 方法在一个 Action 内部触发另一个已注册的 Action，这对于逻辑复用和构建复杂的行为链条非常有用。
+
+class WeatherAction(BaseAction):
+    action_name = "get_weather"
+    action_description = "获取天气信息"
+    action_parameters = {"city": "城市名称"}
+    
+    async def execute(self) -> Tuple[bool, str]:
+        city = self.action_data.get("city", "北京")
+        # ... (获取天气的逻辑) ...
+        weather_info = f"{city}今天晴天"
+        
+        # 调用另一个 Action 来发送图片
+        await self.call_action(
+            action_name="send_image_action",
+            action_data={"description": weather_info}
+        )
+        return True, "天气信息已发送"
+
+class SendImageAction(BaseAction):
+    action_name = "send_image_action"
+    action_description = "根据描述生成并发送图片"
+    action_parameters = {"description": "图片描述"}
+
+    async def execute(self) -> Tuple[bool, str]:
+        desc = self.action_data.get("description")
+        # ... (根据描述生成图片的逻辑) ...
+        return True, "图片已发送"
+二步 Action (Two-Step Action)
+对于需要用户二次确认或选择的复杂操作，可以使用“二步 Action”。
+
+设置标志位: 在你的 Action 类中，设置 is_two_step_action = True。
+定义子操作: 使用 step_one_description 和 sub_actions 描述第一步的功能和可选项。
+实现第二步逻辑: 重写 execute_step_two() 方法来处理用户选择后的具体操作。
+当 Bot 决定使用这个 Action 时：
+
+第一步: 它会调用 handle_step_one()，自动向用户展示 step_one_description 和 sub_actions 列表，并等待 LLM 从用户的新回复中解析出选择的子操作。
+第二步: 当获取到用户的选择后，系统会自动调用 execute_step_two()，并将用户选择的 sub_action_name 传递进来。
+class FileManagerAction(BaseAction):
+    action_name = "file_manager"
+    is_two_step_action = True  # 开启二步 Action
+    step_one_description = "我有一个文件管理器，可以帮你操作文件。请问你想做什么？"
+    sub_actions = [
+        ("create_file", "创建一个新文件", {"filename": "文件名"}),
+        ("delete_file", "删除一个已存在的文件", {"filename": "文件名"}),
+        ("read_file", "读取一个文件的内容", {"filename": "文件名"}),
+    ]
+
+    async def execute(self) -> Tuple[bool, str]:
+        # 对于二步 Action，execute 方法通常不需要实现，因为逻辑会自动转到 handle_step_one
+        pass
+
+    async def execute_step_two(self, sub_action_name: str) -> tuple[bool, str]:
+        # 获取 LLM 为子操作解析出的参数
+        filename = self.action_data.get("filename")
+        if not filename:
+            return False, "我需要一个文件名才能操作哦。"
+
+        if sub_action_name == "create_file":
+            # ... 创建文件的逻辑 ...
+            return True, f"文件 '{filename}' 已经创建好了。"
+        elif sub_action_name == "delete_file":
+            # ... 删除文件的逻辑 ...
+            return True, f"文件 '{filename}' 已经被我删除了。"
+        elif sub_action_name == "read_file":
+            # ... 读取文件的逻辑 ...
+            return True, f"这是文件 '{filename}' 的内容：..."
+        
+        return False, "未知的文件操作。"
+🔧 Action 结构与核心属性/方法详解
+基本结构
+class ExampleAction(BaseAction):
+    # --- 核心定义 ---
+    action_name = "example_action"
+    action_description = "这是一个示例动作"
+    
+    # --- LLM决策辅助信息 ---
+    # 定义该 Action 需要的参数，LLM 会尝试从对话中提取这些参数
+    action_parameters = {"param1": "参数1的说明", "param2": "参数2的说明"}
+    # Action 使用场景描述，帮助 LLM 判断何时“选择”使用
+    action_require = ["当用户想要...时使用", "在...场景下比较合适"]
+    
+    # --- 激活逻辑 (v2.0 推荐) ---
+    async def go_activate(self, llm_judge_model=None) -> bool:
+        return await self._keyword_match(["示例"])
+
+    # --- 执行逻辑 ---
+    async def execute(self) -> Tuple[bool, str]:
+        """
+        执行 Action 的主要逻辑
+        
+        Returns:
+            Tuple[bool, str]: (是否成功, 执行结果的简单描述，主要用于日志)
+        """
+        # ---- 在这里编写你的动作逻辑 ----
+        return True, "执行成功"
+核心实例属性
+你可以在 execute() 方法中通过 self 访问这些非常有用的属性：
+
+self.action_data (dict): (极其重要) 这是一个字典，包含了 LLM 决策后传递给该 Action 的所有数据。你定义的 action_parameters 参数值就在这里面！
+self.chat_stream (ChatStream): 当前的聊天流对象，包含了完整的上下文信息。
+self.chat_id (str): 当前聊天流的唯一 ID。
+self.is_group (bool): 当前是否为群聊。
+self.user_id (str): 发送消息的用户 ID。
+self.user_nickname (str): 发送消息的用户昵称。
+self.group_id (str): 当前群聊的 ID (如果是群聊)。
+self.action_message (dict | DatabaseMessages): 触发本次思考的原始消息数据。
+self.plugin_config (dict): 该 Action 所属插件的配置信息。
+重点：如何获取动作参数
+假设你定义了 action_parameters = {"city": "需要查询天气的城市名"}。当 LLM 决定使用你的 Action 时，它会从用户的消息（比如“帮我查查上海的天气”）中提取出 city 的值。
+
+在 execute() 方法中，你可以这样获取它：
+
+async def execute(self) -> Tuple[bool, str]:
+    # 使用 .get() 方法安全地获取参数，如果 LLM 没有提供，则使用默认值
+    city_to_query = self.action_data.get("city", "北京")
+    
+    if not city_to_query:
+        await self.send_text("你需要告诉我查询哪个城市哦。")
+        return False, "缺少城市参数"
+        
+    # ... 使用 city_to_query 进行后续操作 ...
+    return True, f"查询了 {city_to_query} 的天气"
+核心实例方法
+async def send_text(content: str, ...): 发送一条文本消息。
+async def send_image(image_base64: str): 发送一张图片（Base64 格式）。
+async def send_emoji(emoji_base64: str): 发送一个表情（Base64 格式）。
+async def send_custom(message_type: str, content: str, ...): 发送自定义类型的消息（如 voiceurl, videourl 等）。
+async def send_command(command_name: str, args: dict): 向适配器发送一个命令。
+async def wait_for_new_message(timeout: int): 等待指定时间，直到有新消息或超时。
+def get_config(key: str, default=None): 从插件配置中安全地获取一个值，支持点分嵌套访问（如 get_config("database.host")）。
+async def call_action(action_name: str, ...): 调用另一个 Action。
+📜 附录：旧的激活机制 (已废弃)
+在 v2.0 之前，Action 的激活依赖于在类中定义一系列特定的属性。虽然该机制仍然兼容，但我们强烈建议你使用 go_activate() 的方式，因为它更加灵活和强大。
+
+如果你在阅读旧插件代码时遇到以下属性，它们的作用如下：
+
+activation_type (ActionActivationType): 激活类型，可选值为 ALWAYS, NEVER, RANDOM, KEYWORD, LLM_JUDGE。
+random_activation_probability (float): 当 activation_type 为 RANDOM 时，指定激活概率。
+activation_keywords (list[str]): 当 activation_type 为 KEYWORD 时，指定关键词列表。
+llm_judge_prompt (str): 当 activation_type 为 LLM_JUDGE 时，指定 LLM 判断的提示词。
+BaseAction 的默认 go_activate() 实现会读取这些旧属性，并调用对应的 _keyword_match() 等新版工具函数，以实现向后兼容。
+
+
+
+📝 Prompt 组件开发指南 (v2)
+📖 什么是 Prompt 组件？
+Prompt 组件是插件中用于动态增强和定制核心 Prompt 的一种强大工具。它的核心思想是通过向现有的 Prompt 模板中“注入”额外的上下文信息，从而在不修改核心代码的情况下，精细地调整和扩展模型的行为、语气和风格。
+
+你可以把它想象成给模型戴上不同的“面具”或“角色卡”。例如，在与不同用户交流时，可以通过注入不同的 Prompt 来让模型展现出不同的性格；或者在处理特定任务时，注入相关的背景知识来提高其表现。
+
+与 Action 组件的区别
+为了更好地理解 Prompt 组件，我们可以将其与 Action 组件进行简单对比：
+
+⚡ Action 组件：决定模型 “做什么”。它为模型提供了回复之外的额外能力，如发送图片、调用工具等。这是一个行为层面的扩展。
+📝 Prompt 组件：决定模型 “说什么” 和 “怎么说”。它通过影响输入给模型的上下文，来改变模型生成文本的风格和内容。这是一个内容和风格层面的扩展。
+🎯 Prompt 组件的基本结构
+所有 Prompt 组件都必须继承自 BasePrompt 基类，并定义一些关键的类属性来声明其行为。
+
+核心属性详解
+prompt_name: str: （必需） 组件的唯一标识符。命名应清晰、简洁，并能反映其功能。
+prompt_description: str: （推荐） 对组件功能的简要描述，有助于其他开发者理解其用途。
+injection_rules: list[InjectionRule]: （必需） 这是定义注入行为的核心。它是一个 InjectionRule 对象的列表，允许你精确控制注入的 目标、方式、位置 和 优先级。
+代码框架示例
+下面是一个标准的 Prompt 组件代码结构：
+
+from src.plugin_system.base.base_prompt import BasePrompt
+from src.plugin_system.base.component_types import InjectionRule, InjectionType
+from src.chat.utils.prompt_params import PromptParameters
+
+class ExamplePrompt(BasePrompt):
+    # 1. 组件基本信息
+    prompt_name = "example_prompt"
+    prompt_description = "这是一个示例Prompt，用于向核心Prompt添加额外信息。"
+    
+    # 2. 定义注入规则 (核心)
+    injection_rules = [
+        InjectionRule(
+            target_prompt="planner_prompt", 
+            injection_type=InjectionType.PREPEND, 
+            priority=100
+        )
+    ]
+
+    # 3. 初始化 (通常无需修改)
+    def __init__(self, params: PromptParameters, plugin_config: dict | None = None):
+        super().__init__(params, plugin_config)
+
+    # 4. 核心执行逻辑
+    async def execute(self) -> str:
+        """
+        根据上下文动态生成要注入的文本。
+        返回的字符串将根据 injection_rules 的定义被注入到目标Prompt中。
+        """
+        # --- 在这里编写你的逻辑 ---
+        user_name = self.params.user_nickname
+        
+        # 示例：根据用户信息生成一段定制化的提示
+        custom_prompt = f"记住，现在与你对话的用户是'{user_name}'，他是一位资深程序员。请在回复时使用更专业、更技术性的语言。"
+        
+        return custom_prompt
+🛠️ 核心概念：InjectionRule 详解
+injection_rules 列表取代了旧的 injection_point，提供了更强大和灵活的注入控制能力。每个 InjectionRule 对象都定义了一条完整的注入规则。
+
+InjectionRule 的参数
+target_prompt: str: （必需） 要注入的目标核心 Prompt 的名称。常见的有:
+
+planner_prompt: 规划器的Prompt
+s4u_style_prompt: S4U风格的回复Prompt
+normal_style_prompt: 普通风格的回复Prompt
+change_mood_prompt: 情绪改变时的Prompt
+proactive_thinking_decision: 主动思考决策Prompt
+proactive_thinking_simple_bubble: 主动思考冒泡回复Prompt
+proactive_thinking_throw_topic: 主动思考抛出话题回复Prompt
+injection_type: InjectionType: （可选，默认 PREPEND） 注入的方式。这是一个枚举类型，可选值包括：
+
+InjectionType.PREPEND: 在目标 Prompt 的 最前面 插入内容。
+InjectionType.APPEND: 在目标 Prompt 的 最后面 追加内容。
+InjectionType.REPLACE: 替换 目标 Prompt 中的指定内容。
+InjectionType.REMOVE: 移除 目标 Prompt 中的指定内容。
+InjectionType.INSERT_AFTER: 在目标 Prompt 的指定内容 之后 插入。
+priority: int: （可选，默认 100） 注入的优先级。当多个组件注入到同一个目标时，数字越小，优先级越高，越先执行。
+
+target_content: str | None: （特定类型必需） 当 injection_type 为 REPLACE, REMOVE, 或 INSERT_AFTER 时，此项为 必需。它指定了要操作的目标内容，支持正则表达式。
+
+⚠️ 关于旧的 injection_point
+旧的 injection_point: str | list[str] 属性 已被废弃，但为了向后兼容，系统会自动将其转换为 injection_rules。
+
+injection_point = "planner_prompt" 会被自动转换为 [InjectionRule(target_prompt="planner_prompt")]。
+强烈建议 所有新的 Prompt 组件直接使用 injection_rules 来定义注入行为，以获得更强的控制力。
+🚀 实践示例：创建一个高级天气提示组件
+让我们通过一个具体的例子来展示 injection_rules 的强大之处。
+
+场景: 我们希望模型在制定计划时能参考天气，但我们还想在最终回复时追加一条天气提醒。
+
+实现步骤:
+
+创建组件 AdvancedWeatherPrompt。
+设定规则一: 使用 PREPEND 在 planner_prompt 的开头注入详细天气信息，供模型规划时参考。
+设定规则二: 使用 APPEND 在 s4u_style_prompt 和 normal_style_prompt 的末尾追加一句简短的天气提醒。
+实现逻辑: 在 execute 方法中，根据不同的注入目标返回不同的内容。
+完整代码示例:
+
+import random
+from src.plugin_system.base.base_prompt import BasePrompt
+from src.plugin_system.base.component_types import InjectionRule, InjectionType
+from src.chat.utils.prompt_params import PromptParameters
+
+class AdvancedWeatherPrompt(BasePrompt):
+    prompt_name = "advanced_weather_info_prompt"
+    prompt_description = "向规划Prompt注入详细天气，并向回复Prompt追加天气提醒。"
+    
+    injection_rules = [
+        # 规则1：为规划器提供详细天气信息
+        InjectionRule(
+            target_prompt="planner_prompt", 
+            injection_type=InjectionType.PREPEND, 
+            priority=50  # 较高优先级，确保在其他规划信息前
+        ),
+        # 规则2：为两种风格的回复追加一句提醒
+        InjectionRule(
+            target_prompt=["s4u_style_prompt", "normal_style_prompt"], 
+            injection_type=InjectionType.APPEND, 
+            priority=200 # 较低优先级
+        )
+    ]
+
+    def __init__(self, params: PromptParameters, plugin_config: dict | None = None):
+        super().__init__(params, plugin_config)
+        self.weather_data = None # 缓存天气数据
+
+    async def _get_current_weather(self, city: str) -> dict:
+        """一个模拟的天气API调用函数。"""
+        if self.weather_data:
+            return self.weather_data
+        
+        print(f"正在为城市 '{city}' 获取天气信息...")
+        weathers = [
+            {"condition": "晴朗", "temp": "25°C", "suggestion": "天气晴朗，适合户外活动。"},
+            {"condition": "小雨", "temp": "18°C", "suggestion": "正在下雨，请尽量安排室内活动。"},
+        ]
+        self.weather_data = random.choice(weathers)
+        return self.weather_data
+
+    async def execute(self, target_prompt_name: str) -> str:
+        """
+        根据不同的注入目标，返回不同的内容。
+        """
+        city = self.get_config("weather.city", "北京")
+        weather_data = await self._get_current_weather(city)
+
+        # 根据当前执行的注入规则的目标来决定返回内容
+        if target_prompt_name == "planner_prompt":
+            # 返回给规划器的详细信息
+            return f"""
+# 当前天气参考
+- 城市: {city}
+- 天气状况: {weather_data['condition']}
+- 温度: {weather_data['temp']}
+- 出行建议: {weather_data['suggestion']}
+请在制定下一步计划时，务必考虑到以上天气情况。
+"""
+        elif target_prompt_name in ["s4u_style_prompt", "normal_style_prompt"]:
+            # 返回给回复模板的追加提醒
+            return f"\n\n[温馨提示：今天{city}天气{weather_data['condition']}，温度{weather_data['temp']}，请注意。]"
+        
+        return "" # 其他情况返回空字符串
+通过 injection_rules，我们用一个组件就实现了对不同 Prompt 的、不同方式的、精确的注入操作。这就是 Prompt 组件 v2 的强大之处！
+
+
+
+🔧 工具组件详解
+📖 什么是工具
+工具是MoFox_Bot的信息获取能力扩展组件。如果说Action组件功能五花八门，可以拓展麦麦能做的事情，那么Tool就是在某个过程中拓宽了MoFox_Bot能够获得的信息量。
+
+🎯 工具的特点
+🔍 信息获取增强：扩展MoFox_Bot获取外部信息的能力
+📊 数据丰富：帮助MoFox_Bot获得更多背景信息和实时数据
+🔌 插件式架构：支持独立开发和注册新工具
+⚡ 自动发现：工具会被系统自动识别和注册
+🆚 Tool vs Action vs Command 区别
+特征	Action	Command	Tool
+主要用途	扩展MoFox_Bot行为能力	响应用户指令	扩展MoFox_Bot信息获取
+触发方式	MoFox_Bot智能决策	用户主动触发	LLM根据需要调用
+目标	让MoFox_Bot做更多事情	提供具体功能	让MoFox_Bot知道更多信息
+使用场景	增强交互体验	功能服务	信息查询和分析
+🏗️ Tool组件的基本结构
+每个工具必须继承 BaseTool 基类并实现以下属性和方法：
+
+from src.plugin_system import BaseTool, ToolParamType
+
+class MyTool(BaseTool):
+    # 工具名称，必须唯一
+    name = "my_tool"
+    
+    # 工具描述，告诉LLM这个工具的用途
+    description = "这个工具用于获取特定类型的信息"
+    
+    # 参数定义，仅定义参数
+    # 比如想要定义一个类似下面的openai格式的参数表，则可以这么定义:
+    # {
+    #     "type": "object",
+    #     "properties": {
+    #         "query": {
+    #             "type": "string",
+    #             "description": "查询参数"
+    #         },
+    #         "limit": {
+    #             "type": "integer", 
+    #             "description": "结果数量限制"
+    #             "enum": [10, 20, 50]  # 可选值
+    #         }
+    #     },
+    #     "required": ["query"]
+    # }
+    parameters = [
+        ("query", ToolParamType.STRING, "查询参数", True, None),  # 必填参数
+        ("limit", ToolParamType.INTEGER, "结果数量限制", False, ["10", "20", "50"])  # 可选参数
+    ]
+
+    available_for_llm = True  # 是否对LLM可用
+    
+    async def execute(self, function_args: Dict[str, Any]):
+        """执行工具逻辑"""
+        # 实现工具功能
+        result = f"查询结果: {function_args.get('query')}"
+        
+        return {
+            "name": self.name,
+            "content": result
+        }
+属性说明
+属性	类型	说明
+name	str	工具的唯一标识名称
+description	str	工具功能描述，帮助LLM理解用途
+parameters	list[tuple]	参数定义
+其构造而成的工具定义为:
+
+definition: Dict[str, Any] = {"name": cls.name, "description": cls.description, "parameters": cls.parameters}
+方法说明
+方法	参数	返回值	说明
+execute	function_args	dict	执行工具核心逻辑
+🎨 完整工具示例
+完成一个天气查询工具
+
+from src.plugin_system import BaseTool
+import aiohttp
+import orjson
+
+class WeatherTool(BaseTool):
+    """天气查询工具 - 获取指定城市的实时天气信息"""
+    
+    name = "weather_query"
+    description = "查询指定城市的实时天气信息，包括温度、湿度、天气状况等"
+    available_for_llm = True  # 允许LLM调用此工具
+    parameters = [
+        ("city", ToolParamType.STRING, "要查询天气的城市名称，如：北京、上海、纽约", True, None),
+        ("country", ToolParamType.STRING, "国家代码，如：CN、US，可选参数", False, None)
+    ]
+    
+    async def execute(self, function_args: dict):
+        """执行天气查询"""
+        try:
+            city = function_args.get("city")
+            country = function_args.get("country", "")
+            
+            # 构建查询参数
+            location = f"{city},{country}" if country else city
+            
+            # 调用天气API（示例）
+            weather_data = await self._fetch_weather(location)
+            
+            # 格式化结果
+            result = self._format_weather_data(weather_data)
+            
+            return {
+                "name": self.name,
+                "content": result
+            }
+            
+        except Exception as e:
+            return {
+                "name": self.name,
+                "content": f"天气查询失败: {str(e)}"
+            }
+    
+    async def _fetch_weather(self, location: str) -> dict:
+        """获取天气数据"""
+        # 这里是示例，实际需要接入真实的天气API
+        api_url = f"http://api.weather.com/v1/current?q={location}"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url) as response:
+                return await response.json()
+    
+    def _format_weather_data(self, data: dict) -> str:
+        """格式化天气数据"""
+        if not data:
+            return "暂无天气数据"
+        
+        # 提取关键信息
+        city = data.get("location", {}).get("name", "未知城市")
+        temp = data.get("current", {}).get("temp_c", "未知")
+        condition = data.get("current", {}).get("condition", {}).get("text", "未知")
+        humidity = data.get("current", {}).get("humidity", "未知")
+        
+        # 格式化输出
+        return f"""
+🌤️ {city} 实时天气
+━━━━━━━━━━━━━━━━━━
+🌡️ 温度: {temp}°C
+☁️ 天气: {condition}
+💧 湿度: {humidity}%
+━━━━━━━━━━━━━━━━━━
+        """.strip()
+🚨 注意事项和限制
+当前限制
+适用范围：主要适用于信息获取场景
+配置要求：必须开启工具处理器
+开发建议
+功能专一：每个工具专注单一功能
+参数明确：清晰定义工具参数和用途
+错误处理：完善的异常处理和错误反馈
+性能考虑：避免长时间阻塞操作
+信息准确：确保获取信息的准确性和时效性
+🎯 最佳实践
+1. 工具命名规范
+✅ 好的命名
+name = "weather_query"        # 清晰表达功能
+name = "knowledge_search"     # 描述性强
+name = "stock_price_check"    # 功能明确
+```#### ❌ 避免的命名
+```python
+name = "tool1"               # 无意义
+name = "wq"                  # 过于简短
+name = "weather_and_news"    # 功能过于复杂
+2. 描述规范
+✅ 良好的描述
+description = "查询指定城市的实时天气信息，包括温度、湿度、天气状况"
+❌ 避免的描述
+description = "天气"         # 过于简单
+description = "获取信息"      # 不够具体
+3. 参数设计
+✅ 合理的参数设计
+parameters = [
+    ("city", ToolParamType.STRING, "城市名称，如：北京、上海", True, None),
+    ("unit", ToolParamType.STRING, "温度单位：celsius 或 fahrenheit", False, ["celsius", "fahrenheit"])
+]
+❌ 避免的参数设计
+parameters = [
+    ("data", "string", "数据", True)  # 参数过于模糊
+]
+4. 结果格式化
+✅ 良好的结果格式
+def _format_result(self, data):
+    return f"""
+🔍 查询结果
+━━━━━━━━━━━━
+📊 数据: {data['value']}
+📅 时间: {data['timestamp']}
+📝 说明: {data['description']}
+━━━━━━━━━━━━
+    """.strip()
+❌ 避免的结果格式
+def _format_result(self, data):
+    return str(data)  # 直接返回原始数据
+自动化工具缓存系统使用指南
+为了提升性能并减少不必要的重复计算或API调用，MMC内置了一套强大且易于使用的自动化工具缓存系统。该系统同时支持传统的精确缓存和先进的语义缓存。工具开发者无需编写任何手动缓存逻辑，只需在工具类中设置几个属性，即可轻松启用和配置缓存行为。
+
+核心概念
+精确缓存 (KV Cache): 当一个工具被调用时，系统会根据工具名称和所有参数生成一个唯一的键。只有当下一次调用的工具名和所有参数与之前完全一致时，才会命中缓存。
+语义缓存 (Vector Cache): 它不要求参数完全一致，而是理解参数的语义和意图。例如，"查询深圳今天的天气" 和 "今天深圳天气怎么样" 这两个不同的查询，在语义上是高度相似的。如果启用了语义缓存，第二个查询就能成功命中由第一个查询产生的缓存结果。
+如何为你的工具启用缓存
+为你的工具（必须继承自 BaseTool）启用缓存非常简单，只需在你的工具类定义中添加以下一个或多个属性即可：
+
+1. enable_cache: bool
+这是启用缓存的总开关。
+
+类型: bool
+默认值: False
+作用: 设置为 True 即可为该工具启用缓存功能。如果为 False，后续的所有缓存配置都将无效。
+示例:
+
+class MyAwesomeTool(BaseTool):
+    # ... 其他定义 ...
+    enable_cache: bool = True
+2. cache_ttl: int
+设置缓存的生存时间（Time-To-Live）。
+
+类型: int
+单位: 秒
+默认值: 3600 (1小时)
+作用: 定义缓存条目在被视为过期之前可以存活多长时间。
+示例:
+
+class MyLongTermCacheTool(BaseTool):
+    # ... 其他定义 ...
+    enable_cache: bool = True
+    cache_ttl: int = 86400  # 缓存24小时
+3. semantic_cache_query_key: Optional[str]
+启用语义缓存的关键。
+
+类型: Optional[str]
+默认值: None
+作用:
+将此属性的值设置为你工具的某个参数的名称（字符串）。
+自动化缓存系统在工作时，会提取该参数的值，将其转换为向量，并进行语义相似度搜索。
+如果该值为 None，则此工具仅使用精确缓存。
+示例:
+
+class WebSurfingTool(BaseTool):
+    name: str = "web_search"
+    parameters = [
+        ("query", ToolParamType.STRING, "要搜索的关键词或问题。", True, None),
+        # ... 其他参数 ...
+    ]
+    
+    # --- 缓存配置 ---
+    enable_cache: bool = True
+    cache_ttl: int = 7200  # 缓存2小时
+    semantic_cache_query_key: str = "query" # <-- 关键！
+在上面的例子中，web_search 工具的 "query" 参数值（例如，用户输入的搜索词）将被用于语义缓存搜索。
+
+完整示例
+假设我们有一个调用外部API来获取股票价格的工具。由于股价在短时间内相对稳定，且查询意图可能相似（如 "苹果股价" vs "AAPL股价"），因此非常适合使用缓存。
+
+# in your_plugin/tools/stock_checker.py
+
+from src.plugin_system import BaseTool, ToolParamType
+
+class StockCheckerTool(BaseTool):
+    """
+    一个用于查询股票价格的工具。
+    """
+    name: str = "get_stock_price"
+    description: str = "获取指定公司或股票代码的最新价格。"
+    available_for_llm: bool = True
+    parameters = [
+        ("symbol", ToolParamType.STRING, "公司名称或股票代码 (e.g., 'AAPL', '苹果')", True, None),
+    ]
+
+    # --- 缓存配置 ---
+    # 1. 开启缓存
+    enable_cache: bool = True
+    # 2. 股价信息缓存10分钟
+    cache_ttl: int = 600
+    # 3. 使用 "symbol" 参数进行语义搜索
+    semantic_cache_query_key: str = "symbol"
+    # --------------------
+
+    async def execute(self, function_args: dict[str, Any]) -> dict[str, Any]:
+        symbol = function_args.get("symbol")
+        
+        # ... 这里是你调用外部API获取股票价格的逻辑 ...
+        # price = await some_stock_api.get_price(symbol)
+        price = 123.45 # 示例价格
+        
+        return {
+            "type": "stock_price_result",
+            "content": f"{symbol} 的当前价格是 ${price}"
+        }
+通过以上简单的三行配置，StockCheckerTool 现在就拥有了强大的自动化缓存能力：
+
+当用户查询 "苹果" 时，工具会执行并缓存结果。
+在接下来的10分钟内，如果再次查询 "苹果"，将直接从精确缓存返回结果。
+更智能的是，如果另一个用户查询 "AAPL"，语义缓存系统会识别出 "AAPL" 和 "苹果" 在语义上高度相关，大概率也会直接返回缓存的结果，而无需再次调用API。
+现在，你可以专注于实现工具的核心逻辑，把缓存的复杂性交给MMC的自动化系统来处理。
+
+
+
+
+
+增强命令系统使用指南
+概述
+增强命令系统是MoFox-bot插件系统的一个扩展，让命令的定义和使用变得更加简单直观。你不再需要编写复杂的正则表达式，只需要定义命令名、别名和参数处理逻辑即可。
+
+核心特性
+无需正则表达式：只需定义命令名和别名
+自动参数解析：提供CommandArgs类处理参数
+命令别名支持：一个命令可以有多个别名
+优先级控制：支持命令优先级设置
+聊天类型限制：可限制命令在群聊或私聊中使用
+消息拦截：可选择是否拦截消息进行后续处理
+快速开始
+1. 创建基础命令
+from src.plugin_system import PlusCommand, CommandArgs, ChatType
+from typing import Tuple, Optional
+
+class EchoCommand(PlusCommand):
+    """Echo命令示例"""
+    
+    command_name = "echo"
+    command_description = "回显命令"
+    command_aliases = ["say", "repeat"]  # 可选：命令别名
+    priority = 5  # 可选：优先级，数字越大优先级越高
+    chat_type_allow = ChatType.ALL  # 可选：ALL, GROUP, PRIVATE
+    intercept_message = True  # 可选：是否拦截消息
+
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        """执行命令"""
+        if args.is_empty():
+            await self.send_text("❓ 请提供要回显的内容\\n用法: /echo <内容>")
+            return True, "参数不足", True
+        
+        content = args.get_raw()
+        await self.send_text(f"🔊 {content}")
+        
+        return True, "Echo命令执行成功", True
+2. 在插件中注册命令
+from src.plugin_system import BasePlugin, create_plus_command_adapter, register_plugin
+
+@register_plugin
+class MyPlugin(BasePlugin):
+    plugin_name = "my_plugin"
+    enable_plugin = True
+    dependencies = []
+    python_dependencies = []
+    config_file_name = "config.toml"
+
+    def get_plugin_components(self):
+        components = []
+        
+        # 使用工厂函数创建适配器
+        echo_adapter = create_plus_command_adapter(EchoCommand)
+        components.append((EchoCommand.get_command_info(), echo_adapter))
+        
+        return components
+CommandArgs 类详解
+CommandArgs类提供了丰富的参数处理功能：
+
+基础方法
+# 获取原始参数字符串
+raw_text = args.get_raw()
+
+# 获取解析后的参数列表（按空格分割，支持引号）
+arg_list = args.get_args()
+
+# 检查是否有参数
+if args.is_empty():
+    # 没有参数的处理
+
+# 获取参数数量
+count = args.count()
+获取特定参数
+# 获取第一个参数
+first_arg = args.get_first("默认值")
+
+# 获取指定索引的参数
+second_arg = args.get_arg(1, "默认值")
+
+# 获取从指定位置开始的剩余参数
+remaining = args.get_remaining(1)  # 从第2个参数开始
+标志参数处理
+# 检查是否包含标志
+if args.has_flag("--verbose"):
+    # 处理verbose模式
+
+# 获取标志的值
+output_file = args.get_flag_value("--output", "default.txt")
+name = args.get_flag_value("--name", "Anonymous")
+高级示例
+1. 带子命令的复杂命令
+class TestCommand(PlusCommand):
+    command_name = "test"
+    command_description = "测试命令，展示参数解析功能"
+    command_aliases = ["t"]
+
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        if args.is_empty():
+            await self.send_text("用法: /test <子命令> [参数]")
+            return True, "显示帮助", True
+        
+        subcommand = args.get_first().lower()
+        
+        if subcommand == "args":
+            result = f"""
+🔍 参数解析结果:
+原始字符串: '{args.get_raw()}'
+解析后参数: {args.get_args()}
+参数数量: {args.count()}
+第一个参数: '{args.get_first()}'
+剩余参数: '{args.get_remaining()}'
+            """
+            await self.send_text(result)
+            
+        elif subcommand == "flags":
+            result = f"""
+🏴 标志测试结果:
+包含 --verbose: {args.has_flag('--verbose')}
+包含 -v: {args.has_flag('-v')}
+--output 的值: '{args.get_flag_value('--output', '未设置')}'
+--name 的值: '{args.get_flag_value('--name', '未设置')}'
+            """
+            await self.send_text(result)
+            
+        else:
+            await self.send_text(f"❓ 未知的子命令: {subcommand}")
+        
+        return True, "Test命令执行成功", True
+2. 聊天类型限制示例
+class PrivateOnlyCommand(PlusCommand):
+    command_name = "private"
+    command_description = "仅私聊可用的命令"
+    chat_type_allow = ChatType.PRIVATE
+
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        await self.send_text("这是一个仅私聊可用的命令")
+        return True, "私聊命令执行", True
+
+class GroupOnlyCommand(PlusCommand):
+    command_name = "group"
+    command_description = "仅群聊可用的命令"
+    chat_type_allow = ChatType.GROUP
+
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        await self.send_text("这是一个仅群聊可用的命令")
+        return True, "群聊命令执行", True
+3. 配置驱动的命令
+class ConfigurableCommand(PlusCommand):
+    command_name = "config_cmd"
+    command_description = "可配置的命令"
+
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        # 从插件配置中获取设置
+        max_length = self.get_config("commands.max_length", 100)
+        enabled_features = self.get_config("commands.features", [])
+        
+        if args.is_empty():
+            await self.send_text("请提供参数")
+            return True, "无参数", True
+            
+        content = args.get_raw()
+        if len(content) > max_length:
+            await self.send_text(f"内容过长，最大允许 {max_length} 字符")
+            return True, "内容过长", True
+            
+        # 根据配置决定功能
+        if "uppercase" in enabled_features:
+            content = content.upper()
+            
+        await self.send_text(f"处理结果: {content}")
+        return True, "配置命令执行", True
+支持的命令前缀
+系统支持以下命令前缀（在config/bot_config.toml中配置）：
+
+/ - 斜杠（默认）
+! - 感叹号
+. - 点号
+# - 井号
+例如，对于echo命令，以下调用都是有效的：
+
+/echo Hello
+!echo Hello
+.echo Hello
+#echo Hello
+返回值说明
+execute方法需要返回一个三元组：
+
+return (执行成功标志, 可选消息, 是否拦截后续处理)
+执行成功标志 (bool): True表示命令执行成功，False表示失败
+可选消息 (Optional[str]): 用于日志记录的消息
+是否拦截后续处理 (bool): True表示拦截消息，不进行后续处理
+最佳实践
+命令命名：使用简短、直观的命令名
+别名设置：为常用命令提供简短别名
+参数验证：总是检查参数的有效性
+错误处理：提供清晰的错误提示和使用说明
+配置支持：重要设置应该可配置
+聊天类型：根据命令功能选择合适的聊天类型限制
+完整示例
+完整的插件示例请参考 plugins/echo_example/plugin.py 文件。
+
+与传统BaseCommand的区别
+特性	PlusCommand	BaseCommand
+正则表达式	自动生成	手动编写
+参数解析	CommandArgs类	手动处理
+别名支持	内置支持	需要在正则中处理
+代码复杂度	简单	复杂
+学习曲线	平缓	陡峭
+增强命令系统让插件开发变得更加简单和高效，特别适合新手开发者快速上手。
+
+
+
+事件系统使用指南
+概述
+本项目的事件系统是一个基于插件架构的异步事件处理框架，允许插件通过事件驱动的方式进行通信和协作。事件系统采用发布-订阅模式，支持动态事件注册、处理器管理、权重排序、链式处理和细粒度鉴权机制。
+
+核心概念
+事件 (Event)
+事件是系统中发生的特定动作或状态变化，可以被多个处理器监听和响应。每个事件可以配置订阅者和触发者的白名单权限。
+
+事件处理器 (Event Handler)
+事件处理器是响应特定事件的代码单元，可以订阅一个或多个事件。处理器支持权重排序和链式处理控制。
+
+事件管理器 (Event Manager)
+事件管理器是事件系统的核心，负责事件的注册、处理器的管理、权限验证以及事件的触发。
+
+鉴权机制 (Authentication Mechanism)
+系统提供双重鉴权机制：
+
+订阅者白名单 (allowed_subscribers): 控制哪些处理器可以订阅事件
+触发者白名单 (allowed_triggers): 控制哪些插件可以触发事件
+系统架构
+插件系统
+
+事件管理器
+
+事件注册与鉴权
+
+处理器注册与鉴权
+
+事件触发与权限验证
+
+BaseEvent实例
+
+BaseEventHandler实例
+
+处理器执行
+
+结果收集与汇总
+
+订阅者白名单验证
+
+触发者白名单验证
+
+内置事件类型
+系统预定义了以下事件类型：
+
+事件名称	描述	触发时机	默认权限
+on_start	启动事件	系统启动时	SYSTEM
+on_stop	停止事件	系统停止时	SYSTEM
+on_message	消息事件	收到新消息时	SYSTEM
+on_plan	计划事件	执行计划任务时	SYSTEM
+post_llm	准备LLM事件	准备LLM时	SYSTEM
+after_llm	LLM后事件	LLM响应后	SYSTEM
+post_send	准备发送消息事件	准备发送消息时	SYSTEM
+after_send	发送后事件	消息完全发送后	SYSTEM
+快速开始
+1. 创建事件处理器
+继承 BaseEventHandler 基类并实现 execute 方法：
+
+from src.plugin_system import BaseEventHandler, EventType
+from src.plugin_system.base.base_event import HandlerResult
+
+class MyEventHandler(BaseEventHandler):
+    handler_name = "my_handler"
+    handler_description = "我的自定义事件处理器"
+    weight = 10  # 权重，越大越先执行
+    intercept_message = False  # 是否拦截消息
+    init_subscribe = [EventType.ON_MESSAGE]  # 初始订阅的事件
+
+    async def execute(self, params: dict) -> HandlerResult:
+        """处理事件"""
+        try:
+            message = params.get("message")
+            print(f"收到消息: {message}")
+            
+            # 业务逻辑处理
+            # ...
+            
+            return HandlerResult(
+                success=True,
+                continue_process=True,  # 是否阻断后续流程
+                message="处理成功",
+                handler_name=self.handler_name
+            )
+        except Exception as e:
+            return HandlerResult(
+                success=False,
+                continue_process=True,
+                message=f"处理失败: {str(e)}",
+                handler_name=self.handler_name
+            )
+2. 注册事件处理器
+在插件中注册事件处理器：
+
+from src.plugin_system import BasePlugin, register_plugin
+
+@register_plugin
+class MyPlugin(BasePlugin):
+    plugin_name = "my_plugin"
+    
+    def get_plugin_components(self):
+        return [
+            (MyEventHandler.get_handler_info(), MyEventHandler),
+        ]
+3. 触发事件
+使用事件管理器触发事件，支持权限验证：
+
+from src.plugin_system.core.event_manager import event_manager
+
+# 触发内置事件（需要SYSTEM权限）
+await event_manager.trigger_event(EventType.ON_MESSAGE, permission_group="SYSTEM", message="Hello World")
+
+# 触发自定义事件（需要相应权限）
+await event_manager.trigger_event("custom_event", permission_group="my_plugin", data={"key": "value"})
+鉴权机制详解
+事件注册时的权限控制
+注册事件时可以指定订阅者和触发者的白名单：
+
+# 注册事件，限制只有特定处理器可以订阅，特定插件可以触发
+event_manager.register_event(
+    "sensitive_event",
+    allowed_subscribers=["audit_handler", "log_handler"],  # 订阅者白名单
+    allowed_triggers=["security_plugin", "admin_plugin"]   # 触发者白名单
+)
+权限验证流程
+订阅权限验证：处理器订阅事件时检查 allowed_subscribers
+触发权限验证：插件触发事件时检查 allowed_triggers
+默认权限：内置事件默认只允许 SYSTEM 权限组触发
+权限组说明
+SYSTEM: 系统核心组件权限
+插件名称: 各个插件的权限标识
+空字符串: 无权限组（无法触发有白名单的事件）
+使用模式
+接口式模式（内部编写handler，外部触发）
+适用场景：插件提供事件处理能力，供其他组件调用
+
+# 服务提供者插件
+class DataProcessorHandler(BaseEventHandler):
+    handler_name = "data_processor"
+    handler_description = "数据处理服务"
+    weight = 10  # 权重，越大越先执行
+    intercept_message = False  # 是否拦截消息
+    init_subscribe = ["process_data_request"]
+    
+    async def execute(self, params: dict) -> HandlerResult:
+        data = params.get("data")
+        processed = self.process_data(data)
+        return HandlerResult(True, True, processed)
+
+# 服务消费者插件
+async def use_data_service():
+    result = await event_manager.trigger_event(
+        "process_data_request", 
+        permission_group="consumer_plugin",
+        data={"input": "test"}
+    )
+    if result:
+        processed_data = result.get_message_result()
+通知式模式（外部编写handler，内部触发）
+适用场景：插件内部发生事件，通知外部处理器
+
+# 事件生产者插件
+class EventProducerPlugin(BasePlugin):
+    def __init__(self):
+        # 注册自定义事件，允许其他处理器订阅
+        event_manager.register_event("custom_alert")
+    
+    async def detect_anomaly(self):
+        if anomaly_detected:
+            # 触发事件通知订阅者
+            await event_manager.trigger_event(
+                "custom_alert", 
+                permission_group=self.plugin_name,
+                anomaly_type="security",
+                severity="high"
+            )
+
+# 事件消费者插件  
+class AlertHandler(BaseEventHandler):
+    handler_name = "alert_handler"
+    init_subscribe = ["custom_alert"]
+    
+    async def execute(self, params: dict) -> HandlerResult:
+        anomaly_type = params.get("anomaly_type")
+        severity = params.get("severity")
+        self.handle_alert(anomaly_type, severity)
+        return HandlerResult(True, True, "Alert handled")
+高级用法
+动态订阅管理
+# 动态订阅处理器到事件
+success = event_manager.subscribe_handler_to_event("handler_name", "event_name")
+
+# 取消订阅
+success = event_manager.unsubscribe_handler_from_event("handler_name", "event_name")
+
+# 处理器自管理订阅
+class DynamicHandler(BaseEventHandler):
+    async def setup_subscriptions(self):
+        self.subscribe("event1")
+        self.subscribe("event2")
+    
+    async def cleanup(self):
+        self.unsubscribe("event1")
+参数传递机制
+事件支持灵活的参数传递：
+
+# 触发事件时传递复杂参数
+await event_manager.trigger_event(
+    "complex_event",
+    permission_group="my_plugin",
+    user_info={"id": 123, "name": "test"},
+    metadata={"timestamp": "2024-01-01", "source": "api"},
+    nested_data={"level1": {"level2": "value"}}
+)
+
+# 处理器接收参数
+async def execute(self, params: dict) -> HandlerResult:
+    user_info = params.get("user_info", {})
+    metadata = params.get("metadata", {})
+    # 处理参数...
+结果汇总与处理
+事件触发后返回 HandlerResultsCollection，提供丰富的查询方法：
+
+results = await event_manager.trigger_event("my_event", permission_group="my_plugin", data=data)
+
+# 获取处理摘要
+summary = results.get_summary()
+print(f"总处理器数: {summary['total_handlers']}")
+print(f"成功数: {summary['success_count']}")
+print(f"失败数: {summary['failure_count']}")
+print(f"失败处理器: {summary['failed_handlers']}")
+
+# 获取特定处理器结果
+specific_result = results.get_handler_result("my_handler")
+if specific_result and specific_result.success:
+    print(f"处理器结果: {specific_result.message}")
+
+# 检查处理链状态
+if results.all_continue_process():
+    print("所有处理器都允许继续处理")
+else:
+    print("有处理器中断了处理链")
+
+# 获取所有消息结果
+all_messages = results.get_message_result()
+事件处理器权重
+事件处理器支持权重机制，权重越高的处理器越先执行：
+
+class CriticalHandler(BaseEventHandler):
+    weight = 100  # 高优先级，最先执行
+    
+class NormalHandler(BaseEventHandler):
+    weight = 50   # 中等优先级
+    
+class BackgroundHandler(BaseEventHandler):
+    weight = 1    # 低优先级，最后执行
+事件链式处理
+通过设置 continue_process 参数控制事件处理链：
+
+class FilterHandler(BaseEventHandler):
+    async def execute(self, params):
+        if should_filter(params):
+            return HandlerResult(True, False, "已过滤")  # 终止后续处理
+        return HandlerResult(True, True, "继续处理")
+完整示例
+示例1：消息监控插件（带权限控制）
+from src.plugin_system import BasePlugin, BaseEventHandler, register_plugin, EventType
+from src.plugin_system.base.base_event import HandlerResult
+from src.plugin_system.core.event_manager import event_manager
+
+class MessageMonitorHandler(BaseEventHandler):
+    handler_name = "message_monitor"
+    handler_description = "监控所有消息并记录统计信息"
+    weight = 5
+    intercept_message = False
+    init_subscribe = [EventType.ON_MESSAGE]
+
+    def __init__(self):
+        super().__init__()
+        self.message_count = 0
+        self.keyword_hits = 0
+
+    async def execute(self, params):
+        self.message_count += 1
+        message = params.get("message", "")
+        
+        # 关键词检测
+        if "重要" in str(message):
+            self.keyword_hits += 1
+            # 触发特殊事件（需要相应权限）
+            await event_manager.trigger_event(
+                "important_message_detected",
+                permission_group=self.plugin_name,
+                message=message,
+                count=self.keyword_hits
+            )
+        
+        print(f"消息 #{self.message_count}: {message[:50]}...")
+        return HandlerResult(True, True, f"已处理消息 #{self.message_count}")
+
+class ImportantMessageHandler(BaseEventHandler):
+    handler_name = "important_handler"
+    handler_description = "处理重要消息"
+    weight = 10
+    intercept_message = False
+    init_subscribe = ["important_message_detected"]  # 动态订阅
+
+    async def execute(self, params):
+        message = params.get("message")
+        count = params.get("count")
+        print(f⚠️ 检测到重要消息 #{count}: {message}")
+        return HandlerResult(True, True, "重要消息已处理")
+
+@register_plugin
+class MessageMonitorPlugin(BasePlugin):
+    plugin_name = "message_monitor"
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 注册自定义事件，设置权限控制
+        event_manager.register_event(
+            "important_message_detected",
+            allowed_subscribers=["important_handler", "audit_handler"],  # 只允许特定处理器订阅
+            allowed_triggers=["message_monitor"]  # 只允许本插件触发
+        )
+
+    def get_plugin_components(self):
+        return [
+            (MessageMonitorHandler.get_handler_info(), MessageMonitorHandler),
+            (ImportantMessageHandler.get_handler_info(), ImportantMessageHandler),
+        ]
+示例2：系统监控插件（带结果汇总）
+import asyncio
+import psutil
+from datetime import datetime
+
+class SystemMonitorHandler(BaseEventHandler):
+    handler_name = "system_monitor"
+    handler_description = "系统资源监控"
+    weight = 1
+    intercept_message = False
+    init_subscribe = [EventType.ON_START]
+
+    async def execute(self, params):
+        # 启动监控任务
+        asyncio.create_task(self._monitor_system())
+        return HandlerResult(True, True, "系统监控已启动")
+    
+    async def _monitor_system(self):
+        while True:
+            # 每30秒检查一次系统状态
+            cpu_percent = psutil.cpu_percent()
+            memory = psutil.virtual_memory()
+            
+            if cpu_percent > 80 or memory.percent > 80:
+                # 触发系统警报事件
+                result = await event_manager.trigger_event(
+                    "system_alert",
+                    permission_group=self.plugin_name,
+                    cpu_percent=cpu_percent,
+                    memory_percent=memory.percent,
+                    timestamp=datetime.now()
+                )
+                
+                # 处理结果汇总
+                if result:
+                    summary = result.get_summary()
+                    print(f"警报处理结果: {summary['success_count']}成功, {summary['failure_count']}失败")
+            
+            await asyncio.sleep(30)
+
+class AlertHandler(BaseEventHandler):
+    handler_name = "alert_handler"
+    handler_description = "处理系统警报"
+    weight = 20
+    intercept_message = False
+    init_subscribe = ["system_alert"]
+
+    async def execute(self, params):
+        cpu = params.get("cpu_percent")
+        memory = params.get("memory_percent")
+        timestamp = params.get("timestamp")
+        print(f"🚨 系统警报({timestamp}): CPU {cpu}%, 内存 {memory}%")
+        return HandlerResult(True, True, "警报已处理")
+
+class AlertNotifierHandler(BaseEventHandler):
+    handler_name = "alert_notifier"
+    handler_description = "通知系统警报"
+    weight = 15
+    intercept_message = False
+    init_subscribe = ["system_alert"]
+
+    async def execute(self, params):
+        cpu = params.get("cpu_percent")
+        memory = params.get("memory_percent")
+        # 发送通知...
+        return HandlerResult(True, True, "通知已发送")
+
+@register_plugin
+class SystemMonitorPlugin(BasePlugin):
+    plugin_name = "system_monitor"
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 注册系统警报事件
+        event_manager.register_event("system_alert")
+    
+    def get_plugin_components(self):
+        return [
+            (SystemMonitorHandler.get_handler_info(), SystemMonitorHandler),
+            (AlertHandler.get_handler_info(), AlertHandler),
+            (AlertNotifierHandler.get_handler_info(), AlertNotifierHandler),
+        ]
+调试和监控
+查看事件系统状态
+# 获取事件系统摘要
+summary = event_manager.get_event_summary()
+print(f"事件总数: {summary['total_events']}")
+print(f"启用事件: {summary['enabled_events']}")
+print(f"禁用事件: {summary['disabled_events']}")
+print(f"处理器总数: {summary['total_handlers']}")
+print(f"事件列表: {summary['event_names']}")
+print(f"处理器列表: {summary['handler_names']}")
+查看事件订阅情况
+# 查看特定事件的订阅者
+subscribers = event_manager.get_event_subscribers(EventType.ON_MESSAGE)
+for name, handler in subscribers.items():
+    print(f"订阅者: {name}, 权重: {handler.weight}")
+
+# 查看事件的权限设置
+event = event_manager.get_event("important_message_detected")
+if event:
+    print(f"允许的订阅者: {event.allowed_subscribers}")
+    print(f"允许的触发者: {event.allowed_triggers}")
+事件执行监控
+# 监控事件执行性能
+import time
+
+async def monitored_trigger(event_name, **kwargs):
+    start_time = time.time()
+    results = await event_manager.trigger_event(event_name, **kwargs)
+    end_time = time.time()
+    
+    if results:
+        execution_time = end_time - start_time
+        summary = results.get_summary()
+        print(f"事件 {event_name} 执行时间: {execution_time:.3f}s")
+        print(f"处理器执行统计: {summary}")
+    
+    return results
+
+
+
+
+适配器命令 API
+这个 API 提供了一个通用的接口，允许插件直接向适配器后端的具体实现（如 NapCat、OneBot 等）发送命令。
+
+它的主要目的是作为一个灵活的扩展机制，用于调用那些适配器尚未直接封装的、特定于平台的原生功能。
+
+什么时候使用这个 API？
+当你需要实现一个功能，而这个功能依赖于平台（例如 QQ）的某个特殊接口，但 MoFox-Bot 的适配器层还没有为它提供现成的、封装好的函数时，你就可以使用这个 API。
+
+它相当于一个“透传”通道，将你的指令（action 和 params）直接送达平台 API。
+
+主要功能
+向适配器发送命令并获取返回值
+async def adapter_command_to_stream(
+    action: str,
+    params: dict,
+    stream_id: Optional[str] = None,
+    timeout: float = 30.0,
+    storage_message: bool = False,
+    show_log: bool = True,
+) -> dict:
+向适配器发送命令并等待响应。
+
+Args:
+
+action (str): 适配器命令动作，直接对应后端平台（如 NapCat）的 API 动作名称。
+params (dict): 命令所需的参数字典。
+stream_id (Optional[str]): 聊天流ID，可选，如果不提供则自动生成一个。
+timeout (float): 超时时间（秒），默认30秒。
+storage_message (bool): 是否存储消息到数据库，默认False。
+show_log (bool): 是否显示日志，默认True。
+Returns:
+
+dict - 适配器返回的响应，格式为:
+成功: {"status": "ok", "data": {...}, "message": "..."}
+失败: {"status": "failed", "message": "错误信息"}
+错误: {"status": "error", "message": "错误信息"}
+使用示例
+1. 获取群列表 (基础示例)
+from src.plugin_system.apis import send_api
+from src.common.logger import get_logger
+
+logger = get_logger(__name__)
+
+async def get_group_list(stream_id: str):
+    """获取机器人加入的群列表"""
+    
+    response = await send_api.adapter_command_to_stream(
+        action="get_group_list",
+        params={},
+        stream_id=stream_id
+    )
+    
+    if response["status"] == "ok":
+        group_list = response.get("data", [])
+        logger.info(f"获取到 {len(group_list)} 个群")
+        return group_list
+    else:
+        logger.error(f"获取群列表失败: {response['message']}")
+        return []
+2. 发送群聊戳一戳 (进阶示例)
+这个例子展示了如何调用一个适配器未直接封装的功能。
+
+# 注意：'send_group_poke' 并非所有适配器都支持。
+# 这里仅作为示例，展示如何调用一个非标准化的 action。
+async def send_poke_in_group(stream_id: str, group_id: int, user_id: int):
+    """在群里戳一戳某人"""
+    
+    response = await send_api.adapter_command_to_stream(
+        action="send_group_poke", # 直接使用平台 API 定义的 action 名称
+        params={
+            "group_id": group_id,
+            "user_id": user_id
+        },
+        stream_id=stream_id
+    )
+    
+    if response["status"] == "ok":
+        logger.info(f"成功向群 {group_id} 的用户 {user_id} 发送了一个戳一戳")
+        return True
+    else:
+        logger.error(f"发送戳一戳失败: {response['message']}")
+        return False
+注意事项
+查阅后端文档: action 和 params 的具体内容完全取决于你正在使用的适配器后端（如 NapCat）。你必须查阅对应后端的 API 文档来确定正确的 action 名称和所需的参数。
+异步执行: 所有命令都是异步的，需要使用 await 关键字。
+错误处理: 命令失败或超时会返回错误信息，建议在代码中进行完善的 try...except 和状态判断。
+超时设置: 建议根据命令的复杂度和网络情况合理设置 timeout 参数。
+
+
+
+聊天API
+聊天API模块专门负责聊天信息的查询和管理，帮助插件获取和管理不同的聊天流。
+
+导入方式
+from src.plugin_system import chat_api
+# 或者
+from src.plugin_system.apis import chat_api
+一种Deprecated方式：
+
+from src.plugin_system.apis.chat_api import ChatManager
+主要功能
+1. 获取所有的聊天流
+def get_all_streams(platform: Optional[str] | SpecialTypes = "qq") -> List[ChatStream]:
+Args:
+
+platform：平台筛选，默认为"qq"，可以使用SpecialTypes枚举类中的SpecialTypes.ALL_PLATFORMS来获取所有平台的聊天流。
+Returns:
+
+List[ChatStream]：聊天流列表
+2. 获取群聊聊天流
+def get_group_streams(platform: Optional[str] | SpecialTypes = "qq") -> List[ChatStream]:
+Args:
+
+platform：平台筛选，默认为"qq"，可以使用SpecialTypes枚举类中的SpecialTypes.ALL_PLATFORMS来获取所有平台的群聊流。
+Returns:
+
+List[ChatStream]：群聊聊天流列表
+3. 获取私聊聊天流
+def get_private_streams(platform: Optional[str] | SpecialTypes = "qq") -> List[ChatStream]:
+Args:
+
+platform：平台筛选，默认为"qq"，可以使用SpecialTypes枚举类中的SpecialTypes.ALL_PLATFORMS来获取所有平台的私聊流。
+Returns:
+
+List[ChatStream]：私聊聊天流列表
+4. 根据群ID获取聊天流
+def get_stream_by_group_id(group_id: str, platform: Optional[str] | SpecialTypes = "qq") -> Optional[ChatStream]:
+Args:
+
+group_id：群聊ID
+platform：平台筛选，默认为"qq"，可以使用SpecialTypes枚举类中的SpecialTypes.ALL_PLATFORMS来获取所有平台的群聊流。
+Returns:
+
+Optional[ChatStream]：聊天流对象，如果未找到返回None
+5. 根据用户ID获取私聊流
+def get_stream_by_user_id(user_id: str, platform: Optional[str] | SpecialTypes = "qq") -> Optional[ChatStream]:
+Args:
+
+user_id：用户ID
+platform：平台筛选，默认为"qq"，可以使用SpecialTypes枚举类中的SpecialTypes.ALL_PLATFORMS来获取所有平台的私聊流。
+Returns:
+
+Optional[ChatStream]：聊天流对象，如果未找到返回None
+6. 获取聊天流类型
+def get_stream_type(chat_stream: ChatStream) -> str:
+Args:
+
+chat_stream：聊天流对象
+Returns:
+
+str：聊天流类型，可能的值包括private（私聊流），group（群聊流）以及unknown（未知类型）。
+7. 获取聊天流信息
+def get_stream_info(chat_stream: ChatStream) -> Dict[str, Any]:
+Args:
+
+chat_stream：聊天流对象
+Returns:
+
+Dict[str, Any]：聊天流的详细信息，包括但不限于：
+stream_id：聊天流ID
+platform：平台名称
+type：聊天流类型
+group_id：群聊ID
+group_name：群聊名称
+user_id：用户ID
+user_name：用户名称
+8. 获取聊天流统计摘要
+def get_streams_summary() -> Dict[str, int]:
+Returns:
+
+Dict[str, int]：聊天流统计信息摘要，包含以下键：
+total_streams：总聊天流数量
+group_streams：群聊流数量
+private_streams：私聊流数量
+qq_streams：QQ平台流数量
+
+
+组件管理API
+组件管理API模块提供了对插件组件的查询和管理功能，使得插件能够获取和使用组件相关的信息。
+
+导入方式
+from src.plugin_system.apis import component_manage_api
+# 或者
+from src.plugin_system import component_manage_api
+功能概述
+组件管理API主要提供以下功能：
+
+插件信息查询 - 获取所有插件或指定插件的信息。
+组件查询 - 按名称或类型查询组件信息。
+组件管理 - 启用或禁用组件，支持全局和局部操作。
+主要功能
+1. 获取所有插件信息
+def get_all_plugin_info() -> Dict[str, PluginInfo]:
+获取所有插件的信息。
+
+Returns:
+
+Dict[str, PluginInfo] - 包含所有插件信息的字典，键为插件名称，值为 PluginInfo 对象。
+2. 获取指定插件信息
+def get_plugin_info(plugin_name: str) -> Optional[PluginInfo]:
+获取指定插件的信息。
+
+Args:
+
+plugin_name (str): 插件名称。
+Returns:
+
+Optional[PluginInfo]: 插件信息对象，如果插件不存在则返回 None。
+3. 获取指定组件信息
+def get_component_info(component_name: str, component_type: ComponentType) -> Optional[Union[CommandInfo, ActionInfo, EventHandlerInfo]]:
+获取指定组件的信息。
+
+Args:
+
+component_name (str): 组件名称。
+component_type (ComponentType): 组件类型。
+Returns:
+
+Optional[Union[CommandInfo, ActionInfo, EventHandlerInfo]]: 组件信息对象，如果组件不存在则返回 None。
+4. 获取指定类型的所有组件信息
+def get_components_info_by_type(component_type: ComponentType) -> Dict[str, Union[CommandInfo, ActionInfo, EventHandlerInfo]]:
+获取指定类型的所有组件信息。
+
+Args:
+
+component_type (ComponentType): 组件类型。
+Returns:
+
+Dict[str, Union[CommandInfo, ActionInfo, EventHandlerInfo]]: 包含指定类型组件信息的字典，键为组件名称，值为对应的组件信息对象。
+5. 获取指定类型的所有启用的组件信息
+def get_enabled_components_info_by_type(component_type: ComponentType) -> Dict[str, Union[CommandInfo, ActionInfo, EventHandlerInfo]]:
+获取指定类型的所有启用的组件信息。
+
+Args:
+
+component_type (ComponentType): 组件类型。
+Returns:
+
+Dict[str, Union[CommandInfo, ActionInfo, EventHandlerInfo]]: 包含指定类型启用组件信息的字典，键为组件名称，值为对应的组件信息对象。
+6. 获取指定 Action 的注册信息
+def get_registered_action_info(action_name: str) -> Optional[ActionInfo]:
+获取指定 Action 的注册信息。
+
+Args:
+
+action_name (str): Action 名称。
+Returns:
+
+Optional[ActionInfo] - Action 信息对象，如果 Action 不存在则返回 None。
+7. 获取指定 Command 的注册信息
+def get_registered_command_info(command_name: str) -> Optional[CommandInfo]:
+获取指定 Command 的注册信息。
+
+Args:
+
+command_name (str): Command 名称。
+Returns:
+
+Optional[CommandInfo] - Command 信息对象，如果 Command 不存在则返回 None。
+8. 获取指定 Tool 的注册信息
+def get_registered_tool_info(tool_name: str) -> Optional[ToolInfo]:
+获取指定 Tool 的注册信息。
+
+Args:
+
+tool_name (str): Tool 名称。
+Returns:
+
+Optional[ToolInfo] - Tool 信息对象，如果 Tool 不存在则返回 None。
+9. 获取指定 EventHandler 的注册信息
+def get_registered_event_handler_info(event_handler_name: str) -> Optional[EventHandlerInfo]:
+获取指定 EventHandler 的注册信息。
+
+Args:
+
+event_handler_name (str): EventHandler 名称。
+Returns:
+
+Optional[EventHandlerInfo] - EventHandler 信息对象，如果 EventHandler 不存在则返回 None。
+10. 全局启用指定组件
+def globally_enable_component(component_name: str, component_type: ComponentType) -> bool:
+全局启用指定组件。
+
+Args:
+
+component_name (str): 组件名称。
+component_type (ComponentType): 组件类型。
+Returns:
+
+bool - 启用成功返回 True，否则返回 False。
+11. 全局禁用指定组件
+async def globally_disable_component(component_name: str, component_type: ComponentType) -> bool:
+全局禁用指定组件。
+
+此函数是异步的，确保在异步环境中调用。
+
+Args:
+
+component_name (str): 组件名称。
+component_type (ComponentType): 组件类型。
+Returns:
+
+bool - 禁用成功返回 True，否则返回 False。
+12. 局部启用指定组件
+def locally_enable_component(component_name: str, component_type: ComponentType, stream_id: str) -> bool:
+局部启用指定组件。
+
+Args:
+
+component_name (str): 组件名称。
+component_type (ComponentType): 组件类型。
+stream_id (str): 消息流 ID。
+Returns:
+
+bool - 启用成功返回 True，否则返回 False。
+13. 局部禁用指定组件
+def locally_disable_component(component_name: str, component_type: ComponentType, stream_id: str) -> bool:
+局部禁用指定组件。
+
+Args:
+
+component_name (str): 组件名称。
+component_type (ComponentType): 组件类型。
+stream_id (str): 消息流 ID。
+Returns:
+
+bool - 禁用成功返回 True，否则返回 False。
+14. 获取指定消息流中禁用的组件列表
+def get_locally_disabled_components(stream_id: str, component_type: ComponentType) -> list[str]:
+获取指定消息流中禁用的组件列表。
+
+Args:
+
+stream_id (str): 消息流 ID。
+component_type (ComponentType): 组件类型。
+Returns:
+
+list[str] - 禁用的组件名称列表。
+
+
+
+
+配置API
+配置API模块提供了配置读取功能，让插件能够安全地访问全局配置和插件配置。
+
+导入方式
+from src.plugin_system.apis import config_api
+# 或者
+from src.plugin_system import config_api
+主要功能
+1. 访问全局配置
+def get_global_config(key: str, default: Any = None) -> Any:
+Args:
+
+key: 命名空间式配置键名，使用嵌套访问，如 "section.subsection.key"，大小写敏感
+default: 如果配置不存在时返回的默认值
+Returns:
+
+Any: 配置值或默认值
+示例：
+获取机器人昵称
+
+bot_name = config_api.get_global_config("bot.nickname", "MoFox-bot")
+2. 获取插件配置
+def get_plugin_config(plugin_config: dict, key: str, default: Any = None) -> Any:
+Args:
+
+plugin_config: 插件配置字典
+key: 配置键名，支持嵌套访问如 "section.subsection.key"，大小写敏感
+default: 如果配置不存在时返回的默认值
+Returns:
+
+Any: 配置值或默认值
+注意事项
+只读访问：配置API只提供读取功能，插件不能修改全局配置
+错误处理：所有函数都有错误处理，失败时会记录日志并返回默认值
+安全性：插件通过此API访问配置是安全和隔离的
+性能：频繁访问的配置建议在插件初始化时获取并缓存
+
+
+
+数据库API
+数据库API模块提供基于SQLAlchemy的通用数据库操作功能，支持查询、创建、更新和删除记录。
+
+导入方式
+from src.common.database import sqlalchemy_database_api as database_api
+主要功能
+1. 通用数据库操作
+async def db_query(
+    model_class: Type[Base],
+    data: Optional[Dict[str, Any]] = None,
+    query_type: Optional[str] = "get",
+    filters: Optional[Dict[str, Any]] = None,
+    limit: Optional[int] = None,
+    order_by: Optional[List[str]] = None,
+    single_result: Optional[bool] = False,
+) -> Union[List[Dict[str, Any]], Dict[str, Any], None]:
+执行数据库查询操作的通用接口。
+
+Args:
+
+model_class: SQLAlchemy模型类。
+SQLAlchemy模型类可以在src.common.database.sqlalchemy_models模块中找到。
+data: 用于创建或更新的数据
+query_type: 查询类型
+可选值: get, create, update, delete, count。
+filters: 过滤条件字典，键为字段名，值为要匹配的值。支持MongoDB风格的操作符：
+{"field": {"$gt": value}}: 大于
+{"field": {"$lt": value}}: 小于
+{"field": {"$gte": value}}: 大于等于
+{"field": {"$lte": value}}: 小于等于
+{"field": {"$ne": value}}: 不等于
+{"field": {"$in": [value1, value2]}}: 包含
+{"field": {"$nin": [value1, value2]}}: 不包含
+limit: 限制结果数量。
+order_by: 排序字段列表，使用字段名，前缀'-'表示降序。
+排序字段，前缀-表示降序，例如-time表示按时间字段（即time字段）降序
+single_result: 是否只返回单个结果。
+Returns:
+
+根据查询类型返回不同的结果：
+get: 返回查询结果列表或单个结果。（如果 single_result=True）
+create: 返回创建的记录。
+update: 返回受影响的行数。
+delete: 返回受影响的行数。
+count: 返回记录数量。
+示例
+查询最近10条消息
+from src.common.database.sqlalchemy_models import Messages
+
+messages = await database_api.db_query(
+    Messages,
+    query_type="get",
+    filters={"chat_id": chat_stream.stream_id},
+    limit=10,
+    order_by=["-time"]
+)
+创建一条记录
+from src.common.database.sqlalchemy_models import ActionRecords
+import time
+
+new_record = await database_api.db_query(
+    ActionRecords,
+    data={"action_id": "123", "time": time.time(), "action_name": "TestAction"},
+    query_type="create",
+)
+更新记录
+updated_count = await database_api.db_query(
+    ActionRecords,
+    data={"action_done": True},
+    query_type="update",
+    filters={"action_id": "123"},
+)
+删除记录
+deleted_count = await database_api.db_query(
+    ActionRecords,
+    query_type="delete",
+    filters={"action_id": "123"}
+)
+计数
+count = await database_api.db_query(
+    Messages,
+    query_type="count",
+    filters={"chat_id": chat_stream.stream_id}
+)
+2. 数据库保存
+async def db_save(
+    model_class: Type[Base], data: Dict[str, Any], key_field: Optional[str] = None, key_value: Optional[Any] = None
+) -> Optional[Dict[str, Any]]:
+保存数据到数据库（创建或更新）
+
+如果提供了key_field和key_value，会先尝试查找匹配的记录进行更新；
+
+如果没有找到匹配记录，或未提供key_field和key_value，则创建新记录。
+
+Args:
+
+model_class: SQLAlchemy模型类。
+data: 要保存的数据字典。
+key_field: 用于查找现有记录的字段名，例如"action_id"。
+key_value: 用于查找现有记录的字段值。
+Returns:
+
+Optional[Dict[str, Any]]: 保存后的记录数据，失败时返回None。
+示例
+创建或更新一条记录
+
+record = await database_api.db_save(
+    ActionRecords,
+    {
+        "action_id": "123",
+        "time": time.time(),
+        "action_name": "TestAction",
+        "action_done": True
+    },
+    key_field="action_id",
+    key_value="123"
+)
+3. 数据库获取
+async def db_get(
+    model_class: Type[Base],
+    filters: Optional[Dict[str, Any]] = None,
+    limit: Optional[int] = None,
+    order_by: Optional[str] = None,
+    single_result: Optional[bool] = False,
+) -> Union[List[Dict[str, Any]], Dict[str, Any], None]:
+从数据库获取记录
+
+这是db_query方法的简化版本，专注于数据检索操作。
+
+Args:
+
+model_class: SQLAlchemy模型类。
+filters: 过滤条件字典，键为字段名，值为要匹配的值。
+limit: 限制结果数量。
+order_by: 排序字段，使用字段名，前缀'-'表示降序。
+single_result: 是否只返回单个结果，如果为True，则返回单个记录字典或None；否则返回记录字典列表或空列表
+Returns:
+
+Union[List[Dict], Dict, None]: 查询结果列表或单个结果（如果single_result=True），失败时返回None。
+示例
+获取单个记录
+record = await database_api.db_get(
+    ActionRecords,
+    filters={"action_id": "123"},
+    single_result=True
+)
+获取最近10条记录
+records = await database_api.db_get(
+    Messages,
+    filters={"chat_id": chat_stream.stream_id},
+    limit=10,
+    order_by="-time",
+)
+4. 动作信息存储
+async def store_action_info(
+    chat_stream=None,
+    action_build_into_prompt: bool = False,
+    action_prompt_display: str = "",
+    action_done: bool = True,
+    thinking_id: str = "",
+    action_data: Optional[dict] = None,
+    action_name: str = "",
+) -> Optional[Dict[str, Any]]:
+存储动作信息到数据库，是一种针对 Action 的 db_save() 的封装函数。
+
+将Action执行的相关信息保存到ActionRecords表中，用于后续的记忆和上下文构建。
+
+Args:
+
+chat_stream: 聊天流对象，包含聊天ID等信息。
+action_build_into_prompt: 是否将动作信息构建到提示中。
+action_prompt_display: 动作提示的显示文本。
+action_done: 动作是否完成。
+thinking_id: 思考过程的ID。
+action_data: 动作的数据字典。
+action_name: 动作的名称。
+Returns:
+
+Optional[Dict[str, Any]]: 存储后的记录数据，失败时返回None。
+示例
+record = await database_api.store_action_info(
+    chat_stream=chat_stream,
+    action_build_into_prompt=True,
+    action_prompt_display="执行了回复动作",
+    action_done=True,
+    thinking_id="thinking_123",
+    action_data={"content": "Hello"},
+    action_name="reply_action"
+)
+可用数据模型
+以下是所有可用的SQLAlchemy数据模型，均可在 src.common.database.sqlalchemy_models 中导入：
+
+Messages
+ActionRecords
+PersonInfo
+ChatStreams
+LLMUsage
+Emoji
+Images
+ImageDescriptions
+OnlineTime
+Memory
+Expression
+ThinkingLog
+GraphNodes
+GraphEdges
+Schedule
+MaiZoneScheduleStatus
+CacheEntries
+
+
+
+
+表情包API
+表情包API模块提供表情包的获取、查询和管理功能，让插件能够智能地选择和使用表情包。
+
+导入方式
+from src.plugin_system.apis import emoji_api
+# 或者
+from src.plugin_system import emoji_api
+二步走识别优化
+从新版本开始，表情包识别系统采用了二步走识别 + 智能缓存的优化方案：
+
+收到表情包时的识别流程
+第一步：VLM视觉分析 - 生成详细描述
+第二步：LLM情感分析 - 基于详细描述提取核心情感标签
+缓存机制：将情感标签缓存到数据库，详细描述保存到Images表
+注册表情包时的优化
+智能复用：优先从Images表获取已有的详细描述
+避免重复：如果表情包之前被收到过，跳过VLM调用
+性能提升：减少不必要的AI调用，降低延时和成本
+缓存策略
+ImageDescriptions表：缓存最终的情感标签（用于快速显示）
+Images表：保存详细描述（用于注册时复用）
+双重检查：防止并发情况下的重复生成
+主要功能
+1. 表情包获取
+async def get_by_description(description: str) -> Optional[Tuple[str, str, str]]:
+根据场景描述选择表情包
+
+Args：
+
+description：表情包的描述文本，例如"开心"、"难过"、"愤怒"等
+Returns：
+
+Optional[Tuple[str, str, str]]：一个元组: (表情包的base64编码, 描述, 情感标签)，如果未找到匹配的表情包则返回None
+示例
+emoji_result = await emoji_api.get_by_description("大笑")
+if emoji_result:
+    emoji_base64, description, matched_scene = emoji_result
+    print(f"获取到表情包: {description}, 场景: {matched_scene}")
+    # 可以将emoji_base64用于发送表情包
+2. 随机获取表情包
+async def get_random(count: Optional[int] = 1) -> List[Tuple[str, str, str]]:
+随机获取指定数量的表情包
+
+Args：
+
+count：要获取的表情包数量，默认为1
+Returns：
+
+List[Tuple[str, str, str]]：一个包含多个表情包的列表，每个元素是一个元组: (表情包的base64编码, 描述, 情感标签)，如果未找到或出错则返回空列表
+3. 根据情感获取表情包
+async def get_by_emotion(emotion: str) -> Optional[Tuple[str, str, str]]:
+根据情感标签获取表情包
+
+Args：
+
+emotion：情感标签，例如"开心"、"悲伤"、"愤怒"等
+Returns：
+
+Optional[Tuple[str, str, str]]：一个元组: (表情包的base64编码, 描述, 情感标签)，如果未找到则返回None
+4. 获取表情包数量
+def get_count() -> int:
+获取当前可用表情包的数量
+
+5. 获取表情包系统信息
+def get_info() -> Dict[str, Any]:
+获取表情包系统的基本信息
+
+Returns：
+
+Dict[str, Any]：包含表情包数量、描述等信息的字典，包含以下键：
+current_count：当前表情包数量
+max_count：最大表情包数量
+available_emojis：当前可用的表情包数量
+6. 获取所有可用的情感标签
+def get_emotions() -> List[str]:
+获取所有可用的情感标签 （已经去重）
+
+7. 获取所有表情包描述
+def get_descriptions() -> List[str]:
+获取所有表情包的描述列表
+
+场景描述说明
+常用场景描述
+表情包系统支持多种具体的场景描述，举例如下：
+
+开心类场景：开心的大笑、满意的微笑、兴奋的手舞足蹈
+无奈类场景：表示无奈和沮丧、轻微的讽刺、无语的摇头
+愤怒类场景：愤怒和不满、生气的瞪视、暴躁的抓狂
+惊讶类场景：震惊的表情、意外的发现、困惑的思考
+可爱类场景：卖萌的表情、撒娇的动作、害羞的样子
+情感关键词示例
+系统支持的情感关键词举例如下：
+
+大笑、微笑、兴奋、手舞足蹈
+无奈、沮丧、讽刺、无语、摇头
+愤怒、不满、生气、瞪视、抓狂
+震惊、意外、困惑、思考
+卖萌、撒娇、害羞、可爱
+匹配机制
+精确匹配：优先匹配完整的场景描述，如"开心的大笑"
+关键词匹配：如果没有精确匹配，则根据关键词进行模糊匹配
+语义匹配：系统会理解场景的语义含义进行智能匹配
+注意事项
+异步函数：部分函数是异步的，需要使用 await
+返回格式：表情包以base64编码返回，可直接用于发送
+错误处理：所有函数都有错误处理，失败时返回None，空列表或默认值
+使用统计：系统会记录表情包的使用次数
+文件依赖：表情包依赖于本地文件，确保表情包文件存在
+编码格式：返回的是base64编码的图片数据，可直接用于网络传输
+场景理解：系统能理解具体的场景描述，比简单的情感分类更准确
+
+
+
+
+回复生成器API
+回复生成器API模块提供智能回复生成功能，让插件能够使用系统的回复生成器来产生自然的聊天回复。
+
+导入方式
+from src.plugin_system.apis import generator_api
+# 或者
+from src.plugin_system import generator_api
+主要功能
+1. 回复器获取
+def get_replyer(
+    chat_stream: Optional[ChatStream] = None,
+    chat_id: Optional[str] = None,
+    model_set_with_weight: Optional[List[Tuple[TaskConfig, float]]] = None,
+    request_type: str = "replyer",
+) -> Optional[DefaultReplyer]:
+获取回复器对象
+
+优先使用chat_stream，如果没有则使用chat_id直接查找。
+
+使用 ReplyerManager 来管理实例，避免重复创建。
+
+Args:
+
+chat_stream: 聊天流对象
+chat_id: 聊天ID（实际上就是stream_id）
+model_set_with_weight: 模型配置列表，每个元素为 (TaskConfig, weight) 元组
+request_type: 请求类型，用于记录LLM使用情况，可以不写
+Returns:
+
+DefaultReplyer: 回复器对象，如果获取失败则返回None
+示例
+# 使用聊天流获取回复器
+replyer = generator_api.get_replyer(chat_stream=chat_stream)
+
+# 使用平台和ID获取回复器
+replyer = generator_api.get_replyer(chat_id="123456789")
+2. 回复生成
+async def generate_reply(
+    chat_stream: Optional[ChatStream] = None,
+    chat_id: Optional[str] = None,
+    action_data: Optional[Dict[str, Any]] = None,
+    reply_to: str = "",
+    extra_info: str = "",
+    available_actions: Optional[Dict[str, ActionInfo]] = None,
+    enable_tool: bool = False,
+    enable_splitter: bool = True,
+    enable_chinese_typo: bool = True,
+    return_prompt: bool = False,
+    model_set_with_weight: Optional[List[Tuple[TaskConfig, float]]] = None,
+    request_type: str = "generator_api",
+) -> Tuple[bool, List[Tuple[str, Any]], Optional[str]]:
+生成回复
+
+优先使用chat_stream，如果没有则使用chat_id直接查找。
+
+Args:
+
+chat_stream: 聊天流对象
+chat_id: 聊天ID（实际上就是stream_id）
+action_data: 动作数据（向下兼容，包含reply_to和extra_info）
+reply_to: 回复目标，格式为 {发送者的person_name:消息内容}
+extra_info: 附加信息
+available_actions: 可用动作字典，格式为 {"action_name": ActionInfo}
+enable_tool: 是否启用工具
+enable_splitter: 是否启用分割器
+enable_chinese_typo: 是否启用中文错别字
+return_prompt: 是否返回提示词
+model_set_with_weight: 模型配置列表，每个元素为 (TaskConfig, weight) 元组
+request_type: 请求类型（可选，记录LLM使用）
+request_type: 请求类型，用于记录LLM使用情况
+Returns:
+
+Tuple[bool, List[Tuple[str, Any]], Optional[str]]: (是否成功, 回复集合, 提示词)
+示例
+success, reply_set, prompt = await generator_api.generate_reply(
+    chat_stream=chat_stream,
+    action_data=action_data,
+    reply_to="麦麦:你好",
+    available_actions=action_info,
+    enable_tool=True,
+    return_prompt=True
+)
+if success:
+    for reply_type, reply_content in reply_set:
+        print(f"回复类型: {reply_type}, 内容: {reply_content}")
+    if prompt:
+        print(f"使用的提示词: {prompt}")
+3. 回复重写
+async def rewrite_reply(
+    chat_stream: Optional[ChatStream] = None,
+    reply_data: Optional[Dict[str, Any]] = None,
+    chat_id: Optional[str] = None,
+    enable_splitter: bool = True,
+    enable_chinese_typo: bool = True,
+    model_set_with_weight: Optional[List[Tuple[TaskConfig, float]]] = None,
+    raw_reply: str = "",
+    reason: str = "",
+    reply_to: str = "",
+    return_prompt: bool = False,
+) -> Tuple[bool, List[Tuple[str, Any]], Optional[str]]:
+重写回复，使用新的内容替换旧的回复内容。
+
+优先使用chat_stream，如果没有则使用chat_id直接查找。
+
+Args:
+
+chat_stream: 聊天流对象
+reply_data: 回复数据，包含raw_reply, reason和reply_to，（向下兼容备用，当其他参数缺失时从此获取）
+chat_id: 聊天ID（实际上就是stream_id）
+enable_splitter: 是否启用分割器
+enable_chinese_typo: 是否启用中文错别字
+model_set_with_weight: 模型配置列表，每个元素为 (TaskConfig, weight) 元组
+raw_reply: 原始回复内容
+reason: 重写原因
+reply_to: 回复目标，格式为 {发送者的person_name:消息内容}
+Returns:
+
+Tuple[bool, List[Tuple[str, Any]], Optional[str]]: (是否成功, 回复集合, 提示词)
+示例
+success, reply_set, prompt = await generator_api.rewrite_reply(
+    chat_stream=chat_stream,
+    raw_reply="原始回复内容",
+    reason="重写原因",
+    reply_to="麦麦:你好",
+    return_prompt=True
+)
+if success:
+    for reply_type, reply_content in reply_set:
+        print(f"回复类型: {reply_type}, 内容: {reply_content}")
+    if prompt:
+        print(f"使用的提示词: {prompt}")
+回复集合reply_set格式
+回复类型
+生成的回复集合包含多种类型的回复：
+
+"text"：纯文本回复
+"emoji"：表情包回复
+"image"：图片回复
+"mixed"：混合类型回复
+回复集合结构
+# 示例回复集合
+reply_set = [
+    ("text", "很高兴见到你！"),
+    ("emoji", "emoji_base64_data"),
+    ("text", "有什么可以帮助你的吗？")
+]
+4. 自定义提示词回复
+async def generate_response_custom(
+    chat_stream: Optional[ChatStream] = None,
+    chat_id: Optional[str] = None,
+    model_set_with_weight: Optional[List[Tuple[TaskConfig, float]]] = None,
+    prompt: str = "",
+) -> Optional[str]:
+生成自定义提示词回复
+
+优先使用chat_stream，如果没有则使用chat_id直接查找。
+
+Args:
+
+chat_stream: 聊天流对象
+chat_id: 聊天ID（备用）
+model_set_with_weight: 模型集合配置列表
+prompt: 自定义提示词
+Returns:
+
+Optional[str]: 生成的自定义回复内容，如果生成失败则返回None
+注意事项
+异步操作：部分函数是异步的，须使用await
+聊天流依赖：需要有效的聊天流对象才能正常工作
+性能考虑：回复生成可能需要一些时间，特别是使用LLM时
+回复格式：返回的回复集合是元组列表，包含类型和内容
+上下文感知：生成器会考虑聊天上下文和历史消息，除非你用的是自定义提示词。
+
+
+
+
+LLM API
+LLM API模块提供与大语言模型交互的功能，让插件能够使用系统配置的LLM模型进行内容生成。
+
+导入方式
+from src.plugin_system.apis import llm_api
+# 或者
+from src.plugin_system import llm_api
+主要功能
+1. 查询可用模型
+def get_available_models() -> Dict[str, TaskConfig]:
+获取所有可用的模型配置。
+
+Return：
+
+Dict[str, TaskConfig]：模型配置字典，key为模型名称，value为模型配置对象。
+2. 使用模型生成内容
+async def generate_with_model(
+    prompt: str,
+    model_config: TaskConfig,
+    request_type: str = "plugin.generate",
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+) -> Tuple[bool, str, str, str]:
+使用指定模型生成内容。
+
+Args:
+
+prompt：提示词。
+model_config：模型配置对象（从 get_available_models 获取）。
+request_type：请求类型标识，默认为 "plugin.generate"。
+temperature：生成内容的温度设置，影响输出的随机性。
+max_tokens：生成内容的最大token数。
+Return：
+
+Tuple[bool, str, str, str]：返回一个元组，包含（是否成功, 生成的内容, 推理过程, 模型名称）。
+3. 有Tool情况下使用模型生成内容
+async def generate_with_model_with_tools(
+    prompt: str,
+    model_config: TaskConfig,
+    tool_options: List[Dict[str, Any]] | None = None,
+    request_type: str = "plugin.generate",
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+) -> Tuple[bool, str, str, str, List[ToolCall] | None]:
+使用指定模型生成内容，并支持工具调用。
+
+Args:
+
+prompt：提示词。
+model_config：模型配置对象（从 get_available_models 获取）。
+tool_options：工具选项列表，包含可用工具的配置，字典为每一个工具的定义，参见tool-components.md，可用tool_api.get_llm_available_tool_definitions()获取并选择。
+request_type：请求类型标识，默认为 "plugin.generate"。
+temperature：生成内容的温度设置，影响输出的随机性。
+max_tokens：生成内容的最大token数。
+
+
+
+Logging API
+Logging API模块提供了获取本体logger的功能，允许插件记录日志信息。
+
+导入方式
+from src.plugin_system.apis import get_logger
+# 或者
+from src.plugin_system import get_logger
+主要功能
+1. 获取本体logger
+def get_logger(name: str | None, *, color: str | None = None) -> structlog.stdlib.BoundLogger:
+获取本体logger实例。
+
+Args:
+
+name (str): 日志记录器的名称(不能为空)
+color (str | None): 传入 ANSI / #RRGGBB / rgb(r,g,b) 以注册显示颜色(可选)
+Returns:
+
+一个logger实例，有以下方法:
+debug
+info
+warning
+error
+critical
+
+
+消息API
+消息API提供了强大的消息查询、计数和格式化功能，让你轻松处理聊天消息数据。
+
+导入方式
+from src.plugin_system.apis import message_api
+# 或者
+from src.plugin_system import message_api
+功能概述
+消息API主要提供三大类功能：
+
+消息查询 - 按时间、聊天、用户等条件查询消息
+消息计数 - 统计新消息数量
+消息格式化 - 将消息转换为可读格式
+主要功能
+1. 按照事件查询消息
+def get_messages_by_time(
+    start_time: float, end_time: float, limit: int = 0, limit_mode: str = "latest", filter_mai: bool = False
+) -> List[Dict[str, Any]]:
+获取指定时间范围内的消息。
+
+Args:
+
+start_time (float): 开始时间戳
+end_time (float): 结束时间戳
+limit (int): 限制返回消息数量，0为不限制
+limit_mode (str): 限制模式，"earliest"获取最早记录，"latest"获取最新记录
+filter_mai (bool): 是否过滤掉机器人的消息，默认False
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+消息列表中包含的键与Messages类的属性一致。（位于src.common.database.database_model）
+
+2. 获取指定聊天中指定时间范围内的信息
+def get_messages_by_time_in_chat(
+    chat_id: str,
+    start_time: float,
+    end_time: float,
+    limit: int = 0,
+    limit_mode: str = "latest",
+    filter_mai: bool = False,
+) -> List[Dict[str, Any]]:
+获取指定聊天中指定时间范围内的消息。
+
+Args:
+
+chat_id (str): 聊天ID
+start_time (float): 开始时间戳
+end_time (float): 结束时间戳
+limit (int): 限制返回消息数量，0为不限制
+limit_mode (str): 限制模式，"earliest"获取最早记录，"latest"获取最新记录
+filter_mai (bool): 是否过滤掉机器人的消息，默认False
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+3. 获取指定聊天中指定时间范围内的信息（包含边界）
+def get_messages_by_time_in_chat_inclusive(
+    chat_id: str,
+    start_time: float,
+    end_time: float,
+    limit: int = 0,
+    limit_mode: str = "latest",
+    filter_mai: bool = False,
+    filter_command: bool = False,
+) -> List[Dict[str, Any]]:
+获取指定聊天中指定时间范围内的消息（包含边界）。
+
+Args:
+
+chat_id (str): 聊天ID
+start_time (float): 开始时间戳（包含）
+end_time (float): 结束时间戳（包含）
+limit (int): 限制返回消息数量，0为不限制
+limit_mode (str): 限制模式，"earliest"获取最早记录，"latest"获取最新记录
+filter_mai (bool): 是否过滤掉机器人的消息，默认False
+filter_command (bool): 是否过滤命令消息，默认False
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+4. 获取指定聊天中指定用户在指定时间范围内的消息
+def get_messages_by_time_in_chat_for_users(
+    chat_id: str,
+    start_time: float,
+    end_time: float,
+    person_ids: List[str],
+    limit: int = 0,
+    limit_mode: str = "latest",
+) -> List[Dict[str, Any]]:
+获取指定聊天中指定用户在指定时间范围内的消息。
+
+Args:
+
+chat_id (str): 聊天ID
+start_time (float): 开始时间戳
+end_time (float): 结束时间戳
+person_ids (List[str]): 用户ID列表
+limit (int): 限制返回消息数量，0为不限制
+limit_mode (str): 限制模式，"earliest"获取最早记录，"latest"获取最新记录
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+5. 随机选择一个聊天，返回该聊天在指定时间范围内的消息
+def get_random_chat_messages(
+    start_time: float,
+    end_time: float,
+    limit: int = 0,
+    limit_mode: str = "latest",
+    filter_mai: bool = False,
+) -> List[Dict[str, Any]]:
+随机选择一个聊天，返回该聊天在指定时间范围内的消息。
+
+Args:
+
+start_time (float): 开始时间戳
+end_time (float): 结束时间戳
+limit (int): 限制返回消息数量，0为不限制
+limit_mode (str): 限制模式，"earliest"获取最早记录，"latest"获取最新记录
+filter_mai (bool): 是否过滤掉机器人的消息，默认False
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+6. 获取指定用户在所有聊天中指定时间范围内的消息
+def get_messages_by_time_for_users(
+    start_time: float,
+    end_time: float,
+    person_ids: List[str],
+    limit: int = 0,
+    limit_mode: str = "latest",
+) -> List[Dict[str, Any]]:
+获取指定用户在所有聊天中指定时间范围内的消息。
+
+Args:
+
+start_time (float): 开始时间戳
+end_time (float): 结束时间戳
+person_ids (List[str]): 用户ID列表
+limit (int): 限制返回消息数量，0为不限制
+limit_mode (str): 限制模式，"earliest"获取最早记录，"latest"获取最新记录
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+7. 获取指定时间戳之前的消息
+def get_messages_before_time(
+    timestamp: float,
+    limit: int = 0,
+    filter_mai: bool = False,
+) -> List[Dict[str, Any]]:
+获取指定时间戳之前的消息。
+
+Args:
+
+timestamp (float): 时间戳
+limit (int): 限制返回消息数量，0为不限制
+filter_mai (bool): 是否过滤掉机器人的消息，默认False
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+8. 获取指定聊天中指定时间戳之前的消息
+def get_messages_before_time_in_chat(
+    chat_id: str,
+    timestamp: float,
+    limit: int = 0,
+    filter_mai: bool = False,
+) -> List[Dict[str, Any]]:
+获取指定聊天中指定时间戳之前的消息。
+
+Args:
+
+chat_id (str): 聊天ID
+timestamp (float): 时间戳
+limit (int): 限制返回消息数量，0为不限制
+filter_mai (bool): 是否过滤掉机器人的消息，默认False
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+9. 获取指定用户在指定时间戳之前的消息
+def get_messages_before_time_for_users(
+    timestamp: float,
+    person_ids: List[str],
+    limit: int = 0,
+) -> List[Dict[str, Any]]:
+获取指定用户在指定时间戳之前的消息。
+
+Args:
+
+timestamp (float): 时间戳
+person_ids (List[str]): 用户ID列表
+limit (int): 限制返回消息数量，0为不限制
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+10. 获取指定聊天中最近一段时间的消息
+def get_recent_messages(
+    chat_id: str,
+    hours: float = 24.0,
+    limit: int = 100,
+    limit_mode: str = "latest",
+    filter_mai: bool = False,
+) -> List[Dict[str, Any]]:
+获取指定聊天中最近一段时间的消息。
+
+Args:
+
+chat_id (str): 聊天ID
+hours (float): 最近多少小时，默认24小时
+limit (int): 限制返回消息数量，默认100条
+limit_mode (str): 限制模式，"earliest"获取最早记录，"latest"获取最新记录
+filter_mai (bool): 是否过滤掉机器人的消息，默认False
+Returns:
+
+List[Dict[str, Any]] - 消息列表
+11. 计算指定聊天中从开始时间到结束时间的新消息数量
+def count_new_messages(
+    chat_id: str,
+    start_time: float = 0.0,
+    end_time: Optional[float] = None,
+) -> int:
+计算指定聊天中从开始时间到结束时间的新消息数量。
+
+Args:
+
+chat_id (str): 聊天ID
+start_time (float): 开始时间戳
+end_time (Optional[float]): 结束时间戳，如果为None则使用当前时间
+Returns:
+
+int - 新消息数量
+12. 计算指定聊天中指定用户从开始时间到结束时间的新消息数量
+def count_new_messages_for_users(
+    chat_id: str,
+    start_time: float,
+    end_time: float,
+    person_ids: List[str],
+) -> int:
+计算指定聊天中指定用户从开始时间到结束时间的新消息数量。
+
+Args:
+
+chat_id (str): 聊天ID
+start_time (float): 开始时间戳
+end_time (float): 结束时间戳
+person_ids (List[str]): 用户ID列表
+Returns:
+
+int - 新消息数量
+13. 将消息列表构建成可读的字符串
+def build_readable_messages_to_str(
+    messages: List[Dict[str, Any]],
+    replace_bot_name: bool = True,
+    merge_messages: bool = False,
+    timestamp_mode: str = "relative",
+    read_mark: float = 0.0,
+    truncate: bool = False,
+    show_actions: bool = False,
+) -> str:
+将消息列表构建成可读的字符串。
+
+Args:
+
+messages (List[Dict[str, Any]]): 消息列表
+replace_bot_name (bool): 是否将机器人的名称替换为"你"
+merge_messages (bool): 是否合并连续消息
+timestamp_mode (str): 时间戳显示模式，"relative"或"absolute"
+read_mark (float): 已读标记时间戳，用于分割已读和未读消息
+truncate (bool): 是否截断长消息
+show_actions (bool): 是否显示动作记录
+Returns:
+
+str - 格式化后的可读字符串
+14. 将消息列表构建成可读的字符串，并返回详细信息
+async def build_readable_messages_with_details(
+    messages: List[Dict[str, Any]],
+    replace_bot_name: bool = True,
+    merge_messages: bool = False,
+    timestamp_mode: str = "relative",
+    truncate: bool = False,
+) -> Tuple[str, List[Tuple[float, str, str]]]:
+将消息列表构建成可读的字符串，并返回详细信息。
+
+Args:
+
+messages (List[Dict[str, Any]]): 消息列表
+replace_bot_name (bool): 是否将机器人的名称替换为"你"
+merge_messages (bool): 是否合并连续消息
+timestamp_mode (str): 时间戳显示模式，"relative"或"absolute"
+truncate (bool): 是否截断长消息
+Returns:
+
+Tuple[str, List[Tuple[float, str, str]]] - 格式化后的可读字符串和详细信息元组列表(时间戳, 昵称, 内容)
+15. 从消息列表中提取不重复的用户ID列表
+async def get_person_ids_from_messages(
+    messages: List[Dict[str, Any]],
+) -> List[str]:
+从消息列表中提取不重复的用户ID列表。
+
+Args:
+
+messages (List[Dict[str, Any]]): 消息列表
+Returns:
+
+List[str] - 用户ID列表
+16. 从消息列表中移除机器人的消息
+def filter_mai_messages(
+    messages: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+从消息列表中移除机器人的消息。
+
+Args:
+
+messages (List[Dict[str, Any]]): 消息列表，每个元素是消息字典
+Returns:
+
+List[Dict[str, Any]] - 过滤后的消息列表
+注意事项
+时间戳格式：所有时间参数都使用Unix时间戳（float类型）
+异步函数：部分函数是异步函数，需要使用 await
+性能考虑：查询大量消息时建议设置合理的 limit 参数
+消息格式：返回的消息是字典格式，包含时间戳、发送者、内容等信息
+用户ID：person_ids 参数接受字符串列表，用于筛选特定用户的消息
+
+
+
+
+个人信息API
+个人信息API模块提供用户信息查询和管理功能，让插件能够获取和使用用户的相关信息。
+
+导入方式
+from src.plugin_system.apis import person_api
+# 或者
+from src.plugin_system import person_api
+主要功能
+1. Person ID 获取
+def get_person_id(platform: str, user_id: int) -> str:
+根据平台和用户ID获取person_id
+
+Args:
+
+platform：平台名称，如 "qq", "telegram" 等
+user_id：用户ID
+Returns:
+
+str：唯一的person_id（MD5哈希值）
+示例
+person_id = person_api.get_person_id("qq", 123456)
+2. 用户信息查询
+async def get_person_value(person_id: str, field_name: str, default: Any = None) -> Any:
+查询单个用户信息字段值
+
+Args:
+
+person_id：用户的唯一标识ID
+field_name：要获取的字段名
+default：字段值不存在时的默认值
+Returns:
+
+Any：字段值或默认值
+示例
+nickname = await person_api.get_person_value(person_id, "nickname", "未知用户")
+impression = await person_api.get_person_value(person_id, "impression")
+3. 批量用户信息查询
+async def get_person_values(person_id: str, field_names: list, default_dict: Optional[dict] = None) -> dict:
+批量获取用户信息字段值
+
+Args:
+
+person_id：用户的唯一标识ID
+field_names：要获取的字段名列表
+default_dict：默认值字典，键为字段名，值为默认值
+Returns:
+
+dict：字段名到值的映射字典
+示例
+values = await person_api.get_person_values(
+    person_id,
+    ["nickname", "impression", "know_times"],
+    {"nickname": "未知用户", "know_times": 0}
+)
+4. 判断用户是否已知
+async def is_person_known(platform: str, user_id: int) -> bool:
+判断是否认识某个用户
+
+Args:
+
+platform：平台名称
+user_id：用户ID
+Returns:
+
+bool：是否认识该用户
+5. 根据用户名获取Person ID
+def get_person_id_by_name(person_name: str) -> str:
+根据用户名获取person_id
+
+Args:
+
+person_name：用户名
+Returns:
+
+str：person_id，如果未找到返回空字符串
+常用字段说明
+基础信息字段
+nickname：用户昵称
+platform：平台信息
+user_id：用户ID
+关系信息字段
+impression：对用户的印象
+points: 用户特征点
+其他字段可以参考PersonInfo类的属性（位于src.common.database.database_model）
+
+注意事项
+异步操作：部分查询函数都是异步的，需要使用await
+性能考虑：批量查询优于单个查询
+隐私保护：确保用户信息的使用符合隐私政策
+数据一致性：person_id是用户的唯一标识，应妥善保存和使用
+
+
+插件管理API
+插件管理API模块提供了对插件的加载、卸载、重新加载以及目录管理功能。
+
+导入方式
+from src.plugin_system.apis import plugin_manage_api
+# 或者
+from src.plugin_system import plugin_manage_api
+功能概述
+插件管理API主要提供以下功能：
+
+插件查询 - 列出当前加载的插件或已注册的插件。
+插件管理 - 加载、卸载、重新加载插件。
+插件目录管理 - 添加插件目录并重新扫描。
+主要功能
+1. 列出当前加载的插件
+def list_loaded_plugins() -> List[str]:
+列出所有当前加载的插件。
+
+Returns:
+
+List[str] - 当前加载的插件名称列表。
+2. 列出所有已注册的插件
+def list_registered_plugins() -> List[str]:
+列出所有已注册的插件。
+
+Returns:
+
+List[str] - 已注册的插件名称列表。
+3. 获取插件路径
+def get_plugin_path(plugin_name: str) -> str:
+获取指定插件的路径。
+
+Args:
+
+plugin_name (str): 要查询的插件名称。 Returns:
+str - 插件的路径，如果插件不存在则 raise ValueError。
+4. 卸载指定的插件
+async def remove_plugin(plugin_name: str) -> bool:
+卸载指定的插件。
+
+Args:
+
+plugin_name (str): 要卸载的插件名称。
+Returns:
+
+bool - 卸载是否成功。
+5. 重新加载指定的插件
+async def reload_plugin(plugin_name: str) -> bool:
+重新加载指定的插件。
+
+Args:
+
+plugin_name (str): 要重新加载的插件名称。
+Returns:
+
+bool - 重新加载是否成功。
+6. 加载指定的插件
+def load_plugin(plugin_name: str) -> Tuple[bool, int]:
+加载指定的插件。
+
+Args:
+
+plugin_name (str): 要加载的插件名称。
+Returns:
+
+Tuple[bool, int] - 加载是否成功，成功或失败的个数。
+7. 添加插件目录
+def add_plugin_directory(plugin_directory: str) -> bool:
+添加插件目录。
+
+Args:
+
+plugin_directory (str): 要添加的插件目录路径。
+Returns:
+
+bool - 添加是否成功。
+8. 重新扫描插件目录
+def rescan_plugin_directory() -> Tuple[int, int]:
+重新扫描插件目录，加载新插件。
+
+Returns:
+
+Tuple[int, int] - 成功加载的插件数量和失败的插件数量。
+
+
+消息发送API
+消息发送API模块专门负责发送各种类型的消息，支持文本、表情包、图片等多种消息类型。
+
+导入方式
+from src.plugin_system.apis import send_api
+# 或者
+from src.plugin_system import send_api
+主要功能
+1. 发送文本消息
+async def text_to_stream(
+    text: str,
+    stream_id: str,
+    typing: bool = False,
+    reply_to: str = "",
+    storage_message: bool = True,
+) -> bool:
+发送文本消息到指定的流
+
+Args:
+
+text (str): 要发送的文本内容
+stream_id (str): 聊天流ID
+typing (bool): 是否显示正在输入
+reply_to (str): 回复消息，格式为"发送者:消息内容"
+storage_message (bool): 是否存储消息到数据库
+Returns:
+
+bool - 是否发送成功
+2. 发送表情包
+async def emoji_to_stream(emoji_base64: str, stream_id: str, storage_message: bool = True) -> bool:
+向指定流发送表情包。
+
+Args:
+
+emoji_base64 (str): 表情包的base64编码
+stream_id (str): 聊天流ID
+storage_message (bool): 是否存储消息到数据库
+Returns:
+
+bool - 是否发送成功
+3. 发送图片
+async def image_to_stream(image_base64: str, stream_id: str, storage_message: bool = True) -> bool:
+向指定流发送图片。
+
+Args:
+
+image_base64 (str): 图片的base64编码
+stream_id (str): 聊天流ID
+storage_message (bool): 是否存储消息到数据库
+Returns:
+
+bool - 是否发送成功
+4. 发送命令
+async def command_to_stream(command: Union[str, dict], stream_id: str, storage_message: bool = True, display_message: str = "") -> bool:
+向指定流发送命令。
+
+Args:
+
+command (Union[str, dict]): 命令内容
+stream_id (str): 聊天流ID
+storage_message (bool): 是否存储消息到数据库
+display_message (str): 显示消息
+Returns:
+
+bool - 是否发送成功
+5. 发送自定义类型消息
+async def custom_to_stream(
+    message_type: str,
+    content: str,
+    stream_id: str,
+    display_message: str = "",
+    typing: bool = False,
+    reply_to: str = "",
+    storage_message: bool = True,
+    show_log: bool = True,
+) -> bool:
+向指定流发送自定义类型消息。
+
+Args:
+
+message_type (str): 消息类型，如"text"、"image"、"emoji"、"video"、"file"等
+content (str): 消息内容（通常是base64编码或文本）
+stream_id (str): 聊天流ID
+display_message (str): 显示消息
+typing (bool): 是否显示正在输入
+reply_to (str): 回复消息，格式为"发送者:消息内容"
+storage_message (bool): 是否存储消息到数据库
+show_log (bool): 是否显示日志
+Returns:
+
+bool - 是否发送成功
+使用示例
+1. 基础文本发送，并回复消息
+from src.plugin_system.apis import send_api
+
+async def send_hello(chat_stream):
+    """发送问候消息"""
+    
+    success = await send_api.text_to_stream(
+        text="Hello, world!",
+        stream_id=chat_stream.stream_id,
+        typing=True,
+        reply_to="User:How are you?",
+        storage_message=True
+    )
+    
+    return success
+2. 发送表情包
+from src.plugin_system.apis import emoji_api
+async def send_emoji_reaction(chat_stream, emotion):
+    """根据情感发送表情包"""
+    # 获取表情包
+    emoji_result = await emoji_api.get_by_emotion(emotion)
+    if not emoji_result:
+        return False
+    
+    emoji_base64, description, matched_emotion = emoji_result
+    
+    # 发送表情包
+    success = await send_api.emoji_to_stream(
+        emoji_base64=emoji_base64,
+        stream_id=chat_stream.stream_id,
+        storage_message=False # 不存储到数据库
+    )
+    
+    return success
+消息类型说明
+支持的消息类型
+"text"：纯文本消息
+"emoji"：表情包消息
+"image"：图片消息
+"command"：命令消息
+"video"：视频消息（如果支持）
+"audio"：音频消息（如果支持）
+回复格式
+回复消息使用格式："发送者:消息内容" 或 "发送者：消息内容"
+
+系统会自动查找匹配的原始消息并进行回复。
+
+注意事项
+异步操作：所有发送函数都是异步的，必须使用await
+错误处理：发送失败时返回False，成功时返回True
+发送频率：注意控制发送频率，避免被平台限制
+内容限制：注意平台对消息内容和长度的限制
+权限检查：确保机器人有发送消息的权限
+编码格式：图片和表情包需要使用base64编码
+存储选项：可以选择是否将发送的消息存储到数据库
+
+
+日程与月度计划查询API
+本API模块提供了一系列用于查询日程和月度计划的 只读 接口，帮助插件与MoFox-Bot的日程系统进行交互。API经过重构，专注于提供灵活的数据查询能力。
+
+导入方式
+from src.plugin_system import schedule_api
+# 或者
+from src.plugin_system.apis import schedule_api
+主要功能
+所有对外接口均为异步函数，请在插件的异步环境中使用 await 进行调用。
+
+1. 获取日程安排
+替代了旧的 get_today_schedule()，功能更强大。
+
+async def get_schedule(
+    date: Optional[str] = None,
+    formatted: bool = False,
+    format_template: str = "{time_range}: {activity}"
+) -> Union[List[Dict[str, Any]], str, None]:
+Args:
+
+date (Optional[str]): 目标日期，格式为 "YYYY-MM-DD"。如果省略，则默认为 今天。
+formatted (bool): 若为 True，则返回根据模板格式化的字符串。默认为 False，返回原始数据列表。
+format_template (str): formatted 为 True 时使用的格式化模板。
+Returns:
+
+Union[List[Dict[str, Any]], str, None]: 日程数据列表、格式化字符串或 None。
+2. 获取当前活动
+async def get_current_activity(
+    formatted: bool = False,
+    format_template: str = "{time_range}: {activity}"
+) -> Union[Dict[str, Any], str, None]:
+Args:
+
+formatted (bool): 若为 True，则返回格式化的字符串。默认为 False，返回包含活动详情的字典。
+format_template (str): formatted 为 True 时使用的格式化模板。
+Returns:
+
+Union[Dict[str, Any], str, None]: 当前活动的字典、格式化字符串或 None。
+3. 获取时间段内的活动 (新增)
+async def get_activities_between(
+    start_time: str,
+    end_time: str,
+    date: Optional[str] = None,
+    formatted: bool = False,
+    format_template: str = "{time_range}: {activity}"
+) -> Union[List[Dict[str, Any]], str, None]:
+Args:
+
+start_time (str): 开始时间，格式为 "HH:MM"。
+end_time (str): 结束时间，格式为 "HH:MM"。
+date (Optional[str]): 目标日期，格式为 "YYYY-MM-DD"。默认为今天。
+formatted (bool): 控制返回类型是列表还是格式化字符串。
+Returns:
+
+Union[List[Dict[str, Any]], str, None]: 在指定时间范围内的活动列表、格式化字符串或 None。
+4. 获取月度计划 (重构)
+查询月度计划的接口，功能大幅增强。
+
+async def get_monthly_plans(
+    target_month: Optional[str] = None,
+    random_count: Optional[int] = None,
+    formatted: bool = False,
+    format_template: str = "- {plan_text}"
+) -> Union[List[MonthlyPlan], str, None]:
+Args:
+
+target_month (Optional[str]): 目标月份，格式为 "YYYY-MM"。默认为当前月份。
+random_count (Optional[int]): 如果设置，将从当月计划中 随机 返回指定数量的计划。如果忽略，则返回全部计划。
+formatted (bool): 控制返回类型是 MonthlyPlan 对象列表还是格式化字符串。
+Returns:
+
+Union[List[MonthlyPlan], str, None]: 月度计划对象列表、格式化字符串或 None。
+5. 统计月度计划数量 (新增)
+async def count_monthly_plans(target_month: Optional[str] = None) -> int:
+Args:
+
+target_month (Optional[str]): 目标月份，格式为 "YYYY-MM"。默认为当前月份。
+Returns:
+
+int: 指定月份的有效月度计划总数。
+已移除的API
+为使API更加专注和清晰，以下与日程生成和状态管理相关的函数已被移除：
+
+regenerate_schedule()
+ensure_monthly_plans()
+archive_monthly_plans()
+
+
+存储API (Storage API)
+存储API为每个插件提供了一个独立、持久化的本地数据存储方案。你可以把它想象成一个专属的小仓库，用来存放插件的各种配置、状态或者需要记录的数据。
+
+导入方式
+from src.plugin_system.apis import storage_api
+# 或者
+from src.plugin_system import storage_api
+核心用法
+1. 获取存储实例
+要使用存储功能，首先需要为你的插件获取一个专属的 PluginStorage 实例。这就像是为你的小仓库领一把钥匙。
+
+def get_local_storage(name: str) -> "PluginStorage":
+Args:
+
+name: 插件的唯一标识名。强烈建议使用插件的 __name__ 或者一个不会重复的字符串，因为这个名字决定了你的数据存储文件名，直接关系到数据隔离。如果你的插件包含多个文件，请确保在所有文件中都使用同一个name来获取存储实例，这样才能访问到同一个数据文件，避免产生一堆不必要的json。
+Returns:
+
+PluginStorage: 一个专属于你的插件的存储操作实例。
+示例：
+# 在你的插件代码中
+from src.plugin_system.apis import storage_api
+
+# 使用插件的名称作为标识
+plugin_storage = storage_api.get_local_storage(__name__)
+2. 数据操作方法
+获取到 plugin_storage 实例后，你就可以使用以下方法来对你的数据为所欲为了：
+
+方法	描述
+get(key, default=None)	读取一个键(key)的值，如果键不存在，就返回你给的默认值(default)。
+set(key, value)	设置一个键值对。如果键已存在，它的值会被无情覆盖；如果不存在，就创建一个新的。
+add(key, value)	仅当键(key)不存在时，添加一个新的键值对。要是键已经在了，它可什么都不会做哦。
+update(data)	用一个字典(data)来批量更新或添加多个键值对。
+delete(key)	删除一个键(key)和它对应的值。删了可就找不回来了，想清楚再动手。
+get_all()	获取存储的所有数据，返回一个完整的字典。
+clear()	（危险操作！）清空该插件的所有存储数据。用之前请三思！
+3. 完整示例
+下面的示例将改造 hello_world_plugin 中的 HelloCommand，使其能够记录并回复 /hello 命令被使用了多少次。
+
+from src.plugin_system import PlusCommand, CommandArgs, storage_api
+# 获取当前插件的本地存储实例
+local_storage = storage_api.get_local_storage("hello_world_plugin")
+
+class EnhancedHelloCommand(PlusCommand):
+    """
+    一个增强版的 /hello 命令。
+    它不仅会发送问候，还会使用存储API来记录自己被执行了多少次。
+    """
+    command_name = "hello"
+    command_description = "向机器人发送一个会计算次数的问候。"
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    async def execute(self, args: CommandArgs) -> tuple[bool, str | None, bool]:
+        # 从存储中读取计数，如果不存在则默认为 0
+        count = local_storage.get("hello_command_count", 0)
+
+        # 计数加一
+        count += 1
+        
+        # 将新的计数值存回去
+        local_storage.set("hello_command_count", count)
+        
+        # 从配置文件读取问候语
+        greeting = str(self.get_config("greeting.message", "Hello!"))
+        
+        # 发送带有计数的消息
+        response_message = f"{greeting} 这是我第 {count} 次向你问好哦！"
+        await self.send_text(response_message)
+        
+        return True, f"成功发送第 {count} 次问候", True
+
+# 你需要在你的主插件类（例如 HelloWorldPlugin）的 get_plugin_components 方法中注册这个 Command
+# components.append((EnhancedHelloCommand.get_plus_command_info(), EnhancedHelloCommand))
+注意事项
+数据隔离：每个插件通过不同的 name 获取到的存储实例是完全隔离的，数据会保存在 data/plugin_data/ 目录下对应名称的 .json 文件中，所以不用担心和其他插件搞混。
+线程安全：API内部已经处理了线程锁，你不需要关心多线程读写时的数据冲突问题。
+数据类型：由于底层是使用JSON文件存储，所以你只能存储Python中可以被序列化为JSON的数据类型（如 dict, list, str, int, bool, None 等）。
+性能：对于需要频繁读写的复杂数据，建议先用 get_all() 将数据一次性读入内存中的一个变量，在内存中完成所有修改后，再用 set 或 update 一次性写回，这样可以减少不必要的磁盘I/O。
+
+
+
+
+工具API
+工具API模块提供了获取和管理工具实例的功能，让插件能够访问系统中注册的工具。
+
+导入方式
+from src.plugin_system.apis import tool_api
+# 或者
+from src.plugin_system import tool_api
+主要功能
+1. 获取工具实例
+def get_tool_instance(tool_name: str) -> Optional[BaseTool]:
+获取指定名称的工具实例。
+
+Args:
+
+tool_name: 工具名称字符串
+Returns:
+
+Optional[BaseTool]: 工具实例，如果工具不存在则返回 None
+2. 获取LLM可用的工具定义
+def get_llm_available_tool_definitions():
+获取所有LLM可用的工具定义列表。
+
+Returns:
+
+List[Tuple[str, Dict[str, Any]]]: 工具定义列表，每个元素为 (工具名称, 工具定义字典) 的元组
+其具体定义请参照tool-components.md中的工具定义格式。
+示例：
+# 获取所有LLM可用的工具定义
+tools = tool_api.get_llm_available_tool_definitions()
+for tool_name, tool_definition in tools:
+    print(f"工具: {tool_name}")
+    print(f"定义: {tool_definition}")
+注意事项
+工具存在性检查：使用前请检查工具实例是否为 None
+权限控制：某些工具可能有使用权限限制
+异步调用：大多数工具方法是异步的，需要使用 await
+错误处理：调用工具时请做好异常处理
+
+

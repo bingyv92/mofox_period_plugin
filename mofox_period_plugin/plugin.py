@@ -173,26 +173,6 @@ class PeriodStateManager:
             
         return round(physical_impact, 2), round(psychological_impact, 2)
         
-    def _get_intimacy_guidance(self, stage: str, current_day: int, cycle_length: int) -> str:
-        """获取亲密需求指导，区分情感亲密和性欲"""
-        if stage == "menstrual":
-            # 月经期：需要安慰照顾，性欲低
-            return "需要被拥抱安慰，但性欲较低，不想性接触"
-        elif stage == "follicular":
-            # 卵泡期：情感需求中等，性欲逐渐上升
-            if current_day <= 7:
-                return "情感上比较平和，性冲动逐渐恢复"
-            else:
-                return "性欲开始增强，情感上也愿意亲近"
-        elif stage == "ovulation":
-            # 排卵期：性欲高峰期，但情感需求要区分
-            return "性欲较强，生理上渴望性接触，但情感上需要真诚连接而非单纯暧昧"
-        else:  # luteal
-            # 黄体期：情感需求增加，性欲下降
-            if current_day >= cycle_length - 3:  # 经前阶段
-                return "情感上需要更多理解和陪伴，性欲较低，更适合温柔安慰"
-            else:
-                return "情感上渴望被照顾，性冲动相对较低"
         
     def _get_stage_name_cn(self, stage: str) -> str:
         """获取阶段中文名称"""
@@ -308,14 +288,9 @@ class PeriodStatePrompt(BasePrompt):
         physical = state["physical_impact"]
         psychological = state["psychological_impact"]
         description = state["description"]
-        current_day = state["current_day"]
-        cycle_length = state["cycle_length"]
         
         # 根据影响值生成具体的行为指导
         behavior_guidance = self._get_behavior_guidance(physical, psychological)
-        
-        # 获取亲密需求指导
-        intimacy_guidance = self.state_manager._get_intimacy_guidance(state["stage"], current_day, cycle_length)
         
         prompt = f"""
 【系统状态设定：月经周期】
@@ -328,11 +303,8 @@ class PeriodStatePrompt(BasePrompt):
 具体调整要求：
 {behavior_guidance}
 
-【亲密需求指导】
-{intimacy_guidance}
-
 【重要指令】
-- 不得使用“今天状态挺平和的”、“性欲虽然有点增强”等通用表述来淡化状态影响。
+- 不得使用"今天状态挺平和的"等通用表述来淡化状态影响。
 - 必须将状态特征融入你的角色行为中，例如情绪敏感时语气更柔和，身体不适时表现出需要休息。
 - 此状态设定具有高优先级，必须与其他提示词融合，不得冲突。
 - 保持对话的自然流畅，但确保状态影响得到体现。
@@ -369,8 +341,6 @@ class PeriodStatePrompt(BasePrompt):
         physical = state["physical_impact"]
         psychological = state["psychological_impact"]
         description = state["description"]
-        current_day = state["current_day"]
-        cycle_length = state["cycle_length"]
         
         # KFC模式下的行为指导更加具体和强制
         if physical >= 0.7:
@@ -387,9 +357,6 @@ class PeriodStatePrompt(BasePrompt):
         else:
             mood_hint = "心情平和，但允许情绪起伏"
         
-        # 获取亲密需求指导
-        intimacy_guidance = self.state_manager._get_intimacy_guidance(state["stage"], current_day, cycle_length)
-        
         if kfc_mode == "unified":
             # 统一模式下的提示词
             prompt = f"""
@@ -397,10 +364,8 @@ class PeriodStatePrompt(BasePrompt):
 {behavior_hint}，{mood_hint}。
 {description}
 
-【亲密需求】{intimacy_guidance}
-
 【强制指令】
-1. 禁止在内心独白或回复中使用“今天状态挺平和的”、“性欲虽然有点增强”等通用表述。
+1. 禁止在内心独白或回复中使用"今天状态挺平和的"等通用表述。
 2. 必须将状态特征融入角色行为，具体表现为：{behavior_hint} 和 {mood_hint}。
 3. 此状态优先级高，必须与其他提示词融合，不得冲突。
 """
@@ -410,10 +375,9 @@ class PeriodStatePrompt(BasePrompt):
 【身体状态】{behavior_hint}
 【心理状态】{mood_hint}
 【总体感受】{description}
-【性欲与亲密】{intimacy_guidance}
 
 【强制指令】
-1. 禁止在内心独白或回复中使用“今天状态挺平和的”、“性欲虽然有点增强”等通用表述。
+1. 禁止在内心独白或回复中使用"今天状态挺平和的"等通用表述。
 2. 必须将状态特征融入角色行为，具体表现为：{behavior_hint} 和 {mood_hint}。
 3. 此状态优先级高，必须与其他提示词融合，不得冲突。
 """
