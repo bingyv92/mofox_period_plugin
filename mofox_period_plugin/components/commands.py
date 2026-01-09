@@ -2,9 +2,9 @@
 Command组件
 提供用户交互命令
 """
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
-from src.plugin_system import BaseCommand, ChatType
+from src.plugin_system import PlusCommand, CommandArgs, ChatType
 from src.common.logger import get_logger
 
 from ..managers import PeriodStateManager
@@ -12,20 +12,27 @@ from ..managers import PeriodStateManager
 logger = get_logger("mofox_period_plugin.commands")
 
 
-class PeriodStatusCommand(BaseCommand):
+class PeriodStatusCommand(PlusCommand):
     """查询当前月经周期状态命令"""
     
     command_name = "period_status"
     command_description = "查询当前月经周期状态"
-    command_pattern = r"^/(period|月经状态|周期状态)$"
+    command_aliases = ["period", "月经状态", "周期状态"]
     chat_type_allow = ChatType.PRIVATE
+    priority = 10
+    intercept_message = True  # 确保拦截消息，不进入后续处理流程
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.state_manager = PeriodStateManager(get_config_func=self.get_config)
     
-    async def execute(self) -> Tuple[bool, str, bool]:
-        """执行状态查询"""
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        """执行状态查询
+        
+        Returns:
+            Tuple[bool, Optional[str], bool]: (执行成功, 日志描述, 拦截标志)
+            注意：第三个参数 True 表示要拦截，message_handler 会对其取反
+        """
         try:
             enabled = self.get_config("plugin.enabled", False)
             
@@ -105,20 +112,27 @@ class PeriodStatusCommand(BaseCommand):
         return report.strip()
 
 
-class RegenerateCycleCommand(BaseCommand):
+class RegenerateCycleCommand(PlusCommand):
     """重新生成双周期命令"""
     
     command_name = "regenerate_cycle"
     command_description = "强制重新生成双周期数据"
-    command_pattern = r"^/(regenerate_cycle|重新生成周期|刷新周期)$"
+    command_aliases = ["重新生成周期", "刷新周期", "regenerate"]
     chat_type_allow = ChatType.PRIVATE
+    priority = 10
+    intercept_message = True  # 确保拦截消息，不进入后续处理流程
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.state_manager = PeriodStateManager(get_config_func=self.get_config)
     
-    async def execute(self) -> Tuple[bool, str, bool]:
-        """执行重新生成周期"""
+    async def execute(self, args: CommandArgs) -> Tuple[bool, Optional[str], bool]:
+        """执行重新生成周期
+        
+        Returns:
+            Tuple[bool, Optional[str], bool]: (执行成功, 日志描述, 拦截标志)
+            注意：第三个参数 True 表示要拦截，message_handler 会对其取反
+        """
         try:
             enabled = self.get_config("plugin.enabled", False)
             

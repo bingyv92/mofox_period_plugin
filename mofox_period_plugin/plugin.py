@@ -6,7 +6,12 @@ MoFox Period Plugin - 月经周期状态插件
 """
 from typing import List, Tuple, Type
 
-from src.plugin_system import BasePlugin, register_plugin, ComponentInfo, ConfigField
+from src.plugin_system import (
+    BasePlugin, 
+    register_plugin, 
+    ComponentInfo, 
+    ConfigField
+)
 from src.common.logger import get_logger
 
 # 导入组件
@@ -167,14 +172,14 @@ class MofoxPeriodPlugin(BasePlugin):
                 PeriodStatePrompt
             ))
             
-            # Command组件
+            # Command组件 - 直接注册 PlusCommand
             components.append((
-                PeriodStatusCommand.get_command_info(),
+                PeriodStatusCommand.get_plus_command_info(),
                 PeriodStatusCommand
             ))
             
             components.append((
-                RegenerateCycleCommand.get_command_info(),
+                RegenerateCycleCommand.get_plus_command_info(),
                 RegenerateCycleCommand
             ))
             
